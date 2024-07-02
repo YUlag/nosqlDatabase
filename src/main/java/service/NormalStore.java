@@ -17,8 +17,6 @@ import utils.LoggerUtil;
 import utils.RandomAccessFileUtil;
 
 import java.io.*;
-import java.nio.channels.FileChannel;
-import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -75,7 +73,12 @@ public class NormalStore implements Store {
     /**
      * 数据文件最大大小
      */
-    private static final int MAX_FILE_SIZE = 60 * 1024; // 100kB
+    private static final int MAX_DATA_FILE_SIZE = 60 * 1024; // 100kB
+
+    /**
+     * 日志文件最大大小
+     */
+    private static final int MAX_LOG_FILE_SIZE = 5 * 1024; // 5kB
 
     /**
      * 在压缩过程中阻塞get操作
@@ -152,12 +155,16 @@ public class NormalStore implements Store {
                 flushMemTableToDisk();
             }
             // 写table（wal）文件
-            int EndIndex = (int) new File(this.getWalFilePath()).length();
-            RandomAccessFileUtil.writeInt(this.getWalFilePath(), commandBytes.length);
-            int pos = RandomAccessFileUtil.write(this.getWalFilePath(), commandBytes);
-            RandomAccessFileUtil.writeLogEnd(this.getWalFilePath(),EndIndex);
+            int startPoint = RandomAccessFileUtil.writeInt(this.getWalFilePath(), commandBytes.length);
+            int endPoint = RandomAccessFileUtil.write(this.getWalFilePath(), commandBytes);
+            if (endPoint > MAX_LOG_FILE_SIZE) {
+                RandomAccessFileUtil.writeLogEnd(this.getWalFilePath(), Integer.BYTES * 2);
+                RandomAccessFileUtil.truncate(this.getWalFilePath(),endPoint);
+            } else {
+                RandomAccessFileUtil.writeLogEnd(this.getWalFilePath(), endPoint);
+            }
             // 添加索引
-            CommandPos cmdPos = new CommandPos(pos, commandBytes.length);
+            CommandPos cmdPos = new CommandPos(startPoint, commandBytes.length);
             index.put(key, cmdPos);
 
         } catch (Throwable t) {
@@ -221,10 +228,16 @@ public class NormalStore implements Store {
                 flushMemTableToDisk();
             }
             // 写table（wal）文件
-            RandomAccessFileUtil.writeInt(this.getWalFilePath(), commandBytes.length);
-            int pos = RandomAccessFileUtil.write(this.getWalFilePath(), commandBytes);
+            int startPoint = RandomAccessFileUtil.writeInt(this.getWalFilePath(), commandBytes.length);
+            int endPoint = RandomAccessFileUtil.write(this.getWalFilePath(), commandBytes);
+            if (endPoint > MAX_LOG_FILE_SIZE) {
+                RandomAccessFileUtil.writeLogEnd(this.getWalFilePath(), Integer.BYTES * 2);
+                RandomAccessFileUtil.truncate(this.getWalFilePath(),endPoint);
+            } else {
+                RandomAccessFileUtil.writeLogEnd(this.getWalFilePath(), endPoint);
+            }
             // 添加索引
-            CommandPos cmdPos = new CommandPos(pos, commandBytes.length);
+            CommandPos cmdPos = new CommandPos(startPoint, commandBytes.length);
             index.put(key, cmdPos);
 
         } catch (Throwable t) {
@@ -257,17 +270,17 @@ public class NormalStore implements Store {
                     Command command = entry.getValue();
                     byte[] commandBytes = JSONObject.toJSONBytes(command);
 
-                    RandomAccessFileUtil.writeInt(this.getDiskFilePath(), commandBytes.length);
-                    int pos = RandomAccessFileUtil.write(this.getDiskFilePath(), commandBytes);
-                    CommandPos cmdPos = new CommandPos(pos, commandBytes.length);
+                    int startPoint = RandomAccessFileUtil.writeInt(this.getDiskFilePath(), commandBytes.length);
+                    RandomAccessFileUtil.write(this.getDiskFilePath(), commandBytes);
+                    CommandPos cmdPos = new CommandPos(startPoint, commandBytes.length);
                     index.put(key, cmdPos);
                 }
-                if (file.length() > MAX_FILE_SIZE) {
+                if (file.length() > MAX_DATA_FILE_SIZE) {
                     file.close();
                     rotateDataFile();
                 }
             }
-            // 清空内存表和WAL文件
+            // 清空内存表和WAL文件(伪清空)
             memTable.clear();
             clearWAL();
         } catch (IOException e) {
@@ -277,14 +290,25 @@ public class NormalStore implements Store {
 
     private void replayLog() { //redolog
         try {
+            int logStart = RandomAccessFileUtil.getLogStart(this.getWalFilePath());
+            int logEnd = RandomAccessFileUtil.getLogEnd(this.getWalFilePath());
+            boolean isJump = logEnd < logStart;
+
             RandomAccessFile logFile = new RandomAccessFile(this.getWalFilePath(), "r");
-            while (logFile.getFilePointer() < logFile.length()) {
+            logFile.seek(logStart);
+            int len = (int) new File(this.getWalFilePath()).length();
+            while (logFile.getFilePointer() != logEnd) {
                 int length = logFile.readInt();
                 byte[] commandBytes = new byte[length];
                 logFile.readFully(commandBytes);
 
                 SetCommand command = JSONObject.parseObject(commandBytes, SetCommand.class);
                 memTable.put(command.getKey(), command);
+
+                if (isJump && logFile.getFilePointer() == len){
+                    logFile.seek(Integer.BYTES * 2);
+                    isJump = false;
+                }
             }
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -324,17 +348,19 @@ public class NormalStore implements Store {
     }
 
     private void clearWAL() {
-        try {
-            // 打开 WAL 文件以便写入模式
-            RandomAccessFile raf = new RandomAccessFile(new File(this.getWalFilePath()), RW_MODE);
-            // 将文件长度截断为 0，即清空文件内容
-            raf.setLength(0);
-            // 关闭文件
-            raf.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-            throw new RuntimeException("Clear WAL error：" + e.getMessage());
-        }
+//        try {
+//            // 打开 WAL 文件以便写入模式
+//            RandomAccessFile raf = new RandomAccessFile(new File(this.getWalFilePath()), RW_MODE);
+//            // 将文件长度截断为 0，即清空文件内容
+//            raf.setLength(0);
+//            // 关闭文件
+//            raf.close();
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//            throw new RuntimeException("Clear WAL error：" + e.getMessage());
+//        }
+        int logEnd = RandomAccessFileUtil.getLogEnd(this.getWalFilePath());
+        RandomAccessFileUtil.writeLogStart(this.getWalFilePath(), logEnd);
     }
 
     private void rotateDataFile() throws IOException {

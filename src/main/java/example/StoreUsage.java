@@ -8,6 +8,7 @@
 package example;
 
 import service.NormalStore;
+import utils.RandomAccessFileUtil;
 
 import java.io.File;
 import java.io.IOException;
@@ -19,10 +20,10 @@ public class StoreUsage {
     public static void main(String[] args) {
         String dataDir = "data" + File.separator;
         try (NormalStore store = new NormalStore(dataDir, 100)) { // 自动关闭store
-//            for (int i = 0; i < 1000; i++){
-//                store.set("fzx" + i,"" + i);
-//                System.out.println("set " + i);
-//            }
+            for (int i = 0; i < 1000; i++){
+                store.set("fzx" + i,"" + i);
+                System.out.println("set " + i);
+            }
 ////
 //            for (int i = 0; i < 100; i++){ // 阈值959
 //                store.rm("fzx" + i);
