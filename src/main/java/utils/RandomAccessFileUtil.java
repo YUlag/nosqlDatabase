@@ -17,7 +17,7 @@ import java.nio.charset.StandardCharsets;
 
 public class RandomAccessFileUtil {
     private static final String RW_MODE = "rw";
-    private static final String diskFilePath = "data" + File.separator + File.separator + "data_1" + ".data";
+    private static final String logFilePath = "data" + File.separator + File.separator + "data_1" + ".table";
 
     public static int write(String filePath, byte[] value) throws IOException {
         RandomAccessFile file = null;
@@ -25,7 +25,7 @@ public class RandomAccessFileUtil {
         try {
             file = new RandomAccessFile(filePath, RW_MODE);
             long writeStart = -1L;
-            if (filePath.equals(diskFilePath)) {
+            if (!filePath.equals(logFilePath)) {
                 writeStart = file.length();
             } else {
                 writeStart = getLogEnd(filePath) + Integer.BYTES;
@@ -45,7 +45,7 @@ public class RandomAccessFileUtil {
         long writeStart = -1L;
         try {
             file = new RandomAccessFile(filePath, RW_MODE);
-            if (filePath.equals(diskFilePath)) {
+            if (!filePath.equals(logFilePath)) {
                 writeStart = file.length();
             } else {
                 writeStart = getLogEnd(filePath);

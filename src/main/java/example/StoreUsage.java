@@ -20,24 +20,33 @@ public class StoreUsage {
     public static void main(String[] args) {
         String dataDir = "data" + File.separator;
         try (NormalStore store = new NormalStore(dataDir, 100)) { // 自动关闭store
-//            for (int i = 0; i < 1000; i++){
-//                store.set("fzx" + i,"" + i);
-//                System.out.println("set " + i);
-//            }
-////
-            for (int i = 500; i < 980; i++){ // 阈值959
-                store.rm("fzx" + i);
-                System.out.println("rm " + i);
+            for (int i = 0; i < 1000; i++){
+                store.set("fzx" + i,"" + i);
             }
-//            store.set("zsy1", "1");
-//            store.set("zsy2", "2");
-//            store.set("zsy3", "3");
-//            store.set("zsy1", "你好");
-//            store.set("fzx", "wlj");
-//            store.set("zsy1", "hello");
-//            store.rm("zsy1");
-//            store.set("zsy4", "4");
-//            store.rm("zsy4");
+
+            store.close();
+
+            for (int i = 500; i < 750; i++){
+                store.rm("fzx" + i);
+            }
+
+            store.close();
+
+            for (int i = 750; i < 1500; i++) { //应该会在中途压缩 此时在新文件写 //950左右
+                store.set("fzx" + i, "" + i);
+            }
+
+            store.close();
+
+            for (int i = 1500; i < 2500; i++) { //应该会在中途压缩 此时在新文件写 //950左右
+                store.set("fzx" + i, "" + i);
+            }
+
+            System.out.println(store.get("fzx" + 950));
+            System.out.println(store.get("fzx" + 750));
+            System.out.println(store.get("fzx" + 749));
+
+
             try {
                 store.close(); // 只有关闭和超过阈值才把内存表落盘
             } catch (IOException e) {

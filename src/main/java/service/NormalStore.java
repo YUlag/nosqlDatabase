@@ -26,6 +26,8 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.Deque;
+import java.util.ArrayDeque;
 
 public class NormalStore implements Store {
 
@@ -86,7 +88,7 @@ public class NormalStore implements Store {
     /**
      * data目录下所有.data后缀的文件队列
      */
-    private Queue<Path> dataFiles;
+    private Deque<String> dataFiles;
 
     public NormalStore(String dataDir, Integer storeThreshold) {
         this.dataDir = dataDir;
@@ -94,6 +96,7 @@ public class NormalStore implements Store {
         this.memTable = new TreeMap<String, Command>();
         this.index = new HashMap<>();
         this.storeThreshold = storeThreshold;
+        this.dataFiles = this.getDataFiles(dataDir);
 
         File file = new File(dataDir);
         if (!file.exists()) {
@@ -103,7 +106,6 @@ public class NormalStore implements Store {
         this.replayLog(); //恢复日志
         this.checkConsistency(); //检查一致性
         this.reloadIndex(); // 恢复索引
-        dataFiles = this.getDataFiles(dataDir);
     }
 
     public String getWalFilePath() {
@@ -115,20 +117,24 @@ public class NormalStore implements Store {
     }
 
     public String getOldFilePath() {
-        Path peek = dataFiles.peek();
+        String peek = dataFiles.peek();
         Pattern pattern = Pattern.compile("data_(\\d+)\\.data");
-        Matcher matcher = pattern.matcher(peek.getFileName().toString());
-        int number = Integer.parseInt(matcher.group(1)) + 1;
-        return this.dataDir + File.separator + NAME + "_" + number + DATA ;
+        Matcher matcher = pattern.matcher(peek);
+        int number = 0;
+        if (matcher.find()) {
+            number = Integer.parseInt(matcher.group(1)) + 1;
+        }
+        return this.dataDir + File.separator + "data_" + number + DATA;
     }
 
 
     public void reloadIndex() {
         try {
-            Queue<Path> dataFiles_temp = dataFiles;
-            while (!dataFiles_temp.isEmpty()){
-                Path pollFile = dataFiles_temp.poll();
-                try (RandomAccessFile file = new RandomAccessFile(pollFile.getFileName().toString(), RW_MODE)) {
+            index.clear();
+            Deque<String> dataFiles_temp = new ArrayDeque<>(this.dataFiles);
+            while (!dataFiles_temp.isEmpty()) {
+                String pollFile = dataFiles_temp.poll();
+                try (RandomAccessFile file = new RandomAccessFile(pollFile, RW_MODE)) {
                     long len = file.length();
                     long start = 0;
                     file.seek(start);
@@ -140,18 +146,18 @@ public class NormalStore implements Store {
                         Command command = CommandUtil.jsonToCommand(value);
                         start += Integer.BYTES;
                         if (command != null) {
-                            CommandPos cmdPos = new CommandPos((int) start, cmdLen, pollFile.getFileName().toString());
+                            CommandPos cmdPos = new CommandPos((int) start, cmdLen, pollFile);
                             index.put(command.getKey(), cmdPos);
                         }
                         start += cmdLen;
                     }
                     file.seek(file.length());
+//                    LoggerUtil.debug(LOGGER, logFormat, "reload index: " + index.toString()); TODO:
                 }//随机读写文件
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
-        LoggerUtil.debug(LOGGER, logFormat, "reload index: " + index.toString());
     }
 
     @Override
@@ -171,7 +177,7 @@ public class NormalStore implements Store {
             int endPoint = RandomAccessFileUtil.write(this.getWalFilePath(), commandBytes);
             if (endPoint > MAX_LOG_FILE_SIZE) {
                 RandomAccessFileUtil.writeLogEnd(this.getWalFilePath(), Integer.BYTES * 2);
-                RandomAccessFileUtil.truncate(this.getWalFilePath(),endPoint);
+                RandomAccessFileUtil.truncate(this.getWalFilePath(), endPoint);
             } else {
                 RandomAccessFileUtil.writeLogEnd(this.getWalFilePath(), endPoint);
             }
@@ -244,7 +250,7 @@ public class NormalStore implements Store {
             int endPoint = RandomAccessFileUtil.write(this.getWalFilePath(), commandBytes);
             if (endPoint > MAX_LOG_FILE_SIZE) {
                 RandomAccessFileUtil.writeLogEnd(this.getWalFilePath(), Integer.BYTES * 2);
-                RandomAccessFileUtil.truncate(this.getWalFilePath(),endPoint);
+                RandomAccessFileUtil.truncate(this.getWalFilePath(), endPoint);
             } else {
                 RandomAccessFileUtil.writeLogEnd(this.getWalFilePath(), endPoint);
             }
@@ -284,7 +290,7 @@ public class NormalStore implements Store {
 
                     int startPoint = RandomAccessFileUtil.writeInt(this.getDiskFilePath(), commandBytes.length);
                     RandomAccessFileUtil.write(this.getDiskFilePath(), commandBytes);
-                    CommandPos cmdPos = new CommandPos(startPoint, commandBytes.length,this.getDiskFilePath());
+                    CommandPos cmdPos = new CommandPos(startPoint, commandBytes.length, this.getDiskFilePath());
                     index.put(key, cmdPos);
                 }
                 if (file.length() > MAX_DATA_FILE_SIZE) {
@@ -321,7 +327,7 @@ public class NormalStore implements Store {
                     memTable.remove(command.getKey());
                 }
 
-                if (isJump && logFile.getFilePointer() == len){
+                if (isJump && logFile.getFilePointer() == len) {
                     logFile.seek(Integer.BYTES * 2);
                     isJump = false;
                 }
@@ -385,16 +391,16 @@ public class NormalStore implements Store {
                 try {
                     LoggerUtil.debug(LOGGER, logFormat, "The disk reaches a threshold, Compressing...");
 
-                    File oldFile = new File(this.getOldFilePath());
+                    String oldFilePath = this.getOldFilePath();
+                    File oldFile = new File(oldFilePath);
                     Files.move(Paths.get(this.getDiskFilePath()), oldFile.toPath());
-                    File dataFile = new File(this.getDiskFilePath());
+                    dataFiles.addFirst(oldFilePath);
+                    File dataFile = new File(this.getDiskFilePath().replace("\\", "\\\\"));
                     dataFile.createNewFile();
 
                     compressFile(oldFile);
                 } catch (IOException e) {
                     e.printStackTrace();
-                } finally {
-                    compressionExecutor.shutdownNow();
                 }
             }
         });
@@ -480,22 +486,22 @@ public class NormalStore implements Store {
         newFile.renameTo(oldFile);
     }
 
-    private Queue<Path> getDataFiles(String directoryPath) {
-        List<Path> dataFilesList = new LinkedList<>();
+    private Deque<String> getDataFiles(String directoryPath) {
+        Deque<String> dataFilesList = new ArrayDeque<>();
         Path dirPath = Paths.get(directoryPath);
 
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(dirPath, "*.data")) {
             for (Path entry : stream) {
                 if (Files.isRegularFile(entry)) {
-                    dataFilesList.add(entry);
+                    // 直接使用Path对象的toString方法，然后替换反斜杠
+                    String filePath = entry.toString().replace("\\", "\\\\");
+                    dataFilesList.addFirst(filePath); // 使用 addFirst 将文件路径字符串添加到队列前端
                 }
             }
         } catch (IOException e) {
             e.printStackTrace();
         }
-        // 按文件名逆序排序
-        Collections.sort(dataFilesList, (p1, p2) -> p2.getFileName().toString().compareTo(p1.getFileName().toString()));
-        // 将排序后的文件路径添加到队列中
-        return new LinkedList<>(dataFilesList);
+
+        return dataFilesList;
     }
 }
