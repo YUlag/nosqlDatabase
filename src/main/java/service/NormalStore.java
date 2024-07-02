@@ -18,23 +18,21 @@ import utils.RandomAccessFileUtil;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.TreeMap;
+import java.nio.file.*;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class NormalStore implements Store {
 
     public static final String TABLE = ".table";
     public static final String DATA = ".data";
     public static final String RW_MODE = "rw";
-    public static final String NAME = "data";
+    public static final String NAME = "data_1";
     private final Logger LOGGER = LoggerFactory.getLogger(NormalStore.class);
     private final String logFormat = "[NormalStore][{}]: {}";
     private static final ExecutorService compressionExecutor = Executors.newSingleThreadExecutor();
@@ -85,6 +83,11 @@ public class NormalStore implements Store {
      */
     private final Object getLock = new Object();
 
+    /**
+     * data目录下所有.data后缀的文件队列
+     */
+    private Queue<Path> dataFiles;
+
     public NormalStore(String dataDir, Integer storeThreshold) {
         this.dataDir = dataDir;
         this.indexLock = new ReentrantReadWriteLock();
@@ -100,6 +103,7 @@ public class NormalStore implements Store {
         this.replayLog(); //恢复日志
         this.checkConsistency(); //检查一致性
         this.reloadIndex(); // 恢复索引
+        dataFiles = this.getDataFiles(dataDir);
     }
 
     public String getWalFilePath() {
@@ -110,32 +114,40 @@ public class NormalStore implements Store {
         return this.dataDir + File.separator + NAME + DATA;
     }
 
-    public String getTempFilePath() {
-        return this.dataDir + File.separator + NAME + DATA + ".tmp";
+    public String getOldFilePath() {
+        Path peek = dataFiles.peek();
+        Pattern pattern = Pattern.compile("data_(\\d+)\\.data");
+        Matcher matcher = pattern.matcher(peek.getFileName().toString());
+        int number = Integer.parseInt(matcher.group(1)) + 1;
+        return this.dataDir + File.separator + NAME + "_" + number + DATA ;
     }
 
 
     public void reloadIndex() {
         try {
-            try (RandomAccessFile file = new RandomAccessFile(this.getDiskFilePath(), RW_MODE)) {
-                long len = file.length();
-                long start = 0;
-                file.seek(start);
-                while (start < len) {
-                    int cmdLen = file.readInt();
-                    byte[] bytes = new byte[cmdLen];
-                    file.read(bytes);
-                    JSONObject value = JSON.parseObject(new String(bytes, StandardCharsets.UTF_8)); //反序列
-                    Command command = CommandUtil.jsonToCommand(value);
-                    start += Integer.BYTES;
-                    if (command != null) {
-                        CommandPos cmdPos = new CommandPos((int) start, cmdLen);
-                        index.put(command.getKey(), cmdPos);
+            Queue<Path> dataFiles_temp = dataFiles;
+            while (!dataFiles_temp.isEmpty()){
+                Path pollFile = dataFiles_temp.poll();
+                try (RandomAccessFile file = new RandomAccessFile(pollFile.getFileName().toString(), RW_MODE)) {
+                    long len = file.length();
+                    long start = 0;
+                    file.seek(start);
+                    while (start < len) {
+                        int cmdLen = file.readInt();
+                        byte[] bytes = new byte[cmdLen];
+                        file.read(bytes);
+                        JSONObject value = JSON.parseObject(new String(bytes, StandardCharsets.UTF_8)); //反序列
+                        Command command = CommandUtil.jsonToCommand(value);
+                        start += Integer.BYTES;
+                        if (command != null) {
+                            CommandPos cmdPos = new CommandPos((int) start, cmdLen);
+                            index.put(command.getKey(), cmdPos);
+                        }
+                        start += cmdLen;
                     }
-                    start += cmdLen;
-                }
-                file.seek(file.length());
-            }//随机读写文件
+                    file.seek(file.length());
+                }//随机读写文件
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -369,12 +381,12 @@ public class NormalStore implements Store {
                 try {
                     LoggerUtil.debug(LOGGER, logFormat, "The disk reaches a threshold, Compressing...");
 
-                    File renamedFile = new File(this.getTempFilePath());
-                    Files.move(Paths.get(this.getDiskFilePath()), renamedFile.toPath());
+                    File oldFile = new File(this.getOldFilePath());
+                    Files.move(Paths.get(this.getDiskFilePath()), oldFile.toPath());
                     File dataFile = new File(this.getDiskFilePath());
                     dataFile.createNewFile();
 
-                    compressFile(renamedFile);
+                    compressFile(oldFile);
                 } catch (IOException e) {
                     e.printStackTrace();
                 } finally {
@@ -387,7 +399,7 @@ public class NormalStore implements Store {
     private void compressFile(File fileToCompress) throws IOException {
         try {
             TreeMap<String, Command> latestEntries;
-            try (RandomAccessFile file = new RandomAccessFile(fileToCompress, RW_MODE)) {
+            try (RandomAccessFile file = new RandomAccessFile(fileToCompress, RW_MODE)) { // 压缩操作
                 latestEntries = new TreeMap<>();
                 long len = file.length();
                 long start = 0;
@@ -408,8 +420,7 @@ public class NormalStore implements Store {
                 }
                 file.seek(file.length());
             }
-
-            String tempFilePath = dataDir + File.separator + "data" + "_2" + DATA;
+            String tempFilePath = dataDir + File.separator + "data" + DATA + ".temp";
             File tempFile = new File(tempFilePath);
             for (Map.Entry<String, Command> entry : latestEntries.entrySet()) {
                 try (RandomAccessFile file2 = new RandomAccessFile(tempFile, RW_MODE)) {
@@ -420,14 +431,17 @@ public class NormalStore implements Store {
                     RandomAccessFileUtil.write(tempFilePath, commandBytes);
                 }
             }
-            Files.move(tempFile.toPath(), fileToCompress.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            // 压缩操作完成->tempFile
+
+            Files.move(tempFile.toPath(), fileToCompress.toPath(), StandardCopyOption.REPLACE_EXISTING); // 将tempFile重命名oldFile
 
 //            Thread.sleep(20000); // 模拟压缩时间
 
-            indexLock.writeLock().lock();
-            appendFiles(this.getTempFilePath(), this.getDiskFilePath(), this.getDiskFilePath());
-            fileToCompress.delete();
-            indexLock.writeLock().unlock();
+//            indexLock.writeLock().lock();
+//            appendFiles(this.getOldFilePath(), this.getDiskFilePath(), this.getDiskFilePath());
+//            fileToCompress.delete();
+//            indexLock.writeLock().unlock();
+
 
             reloadIndex();
 
@@ -460,5 +474,24 @@ public class NormalStore implements Store {
         oldFile.delete(); // 删除旧的data.data文件
         File newFile = new File(tempFile);
         newFile.renameTo(oldFile);
+    }
+
+    private Queue<Path> getDataFiles(String directoryPath) {
+        List<Path> dataFilesList = new LinkedList<>();
+        Path dirPath = Paths.get(directoryPath);
+
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dirPath, "*.data")) {
+            for (Path entry : stream) {
+                if (Files.isRegularFile(entry)) {
+                    dataFilesList.add(entry);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        // 按文件名逆序排序
+        Collections.sort(dataFilesList, (p1, p2) -> p2.getFileName().toString().compareTo(p1.getFileName().toString()));
+        // 将排序后的文件路径添加到队列中
+        return new LinkedList<>(dataFilesList);
     }
 }
