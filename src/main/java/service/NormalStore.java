@@ -140,7 +140,7 @@ public class NormalStore implements Store {
                         Command command = CommandUtil.jsonToCommand(value);
                         start += Integer.BYTES;
                         if (command != null) {
-                            CommandPos cmdPos = new CommandPos((int) start, cmdLen);
+                            CommandPos cmdPos = new CommandPos((int) start, cmdLen, pollFile.getFileName().toString());
                             index.put(command.getKey(), cmdPos);
                         }
                         start += cmdLen;
@@ -175,9 +175,9 @@ public class NormalStore implements Store {
             } else {
                 RandomAccessFileUtil.writeLogEnd(this.getWalFilePath(), endPoint);
             }
-            // 添加索引
-            CommandPos cmdPos = new CommandPos(startPoint, commandBytes.length);
-            index.put(key, cmdPos);
+            // 添加索引 统一在落盘时添加
+//            CommandPos cmdPos = new CommandPos(startPoint, commandBytes.length,this.getDiskFilePath());
+//            index.put(key, cmdPos);
 
         } catch (Throwable t) {
             throw new RuntimeException(t);
@@ -207,7 +207,7 @@ public class NormalStore implements Store {
                 if (cmdPos == null) {
                     return null;
                 }
-                byte[] commandBytes = RandomAccessFileUtil.readByIndex(this.getDiskFilePath(), cmdPos.getPos(), cmdPos.getLen());
+                byte[] commandBytes = RandomAccessFileUtil.readByIndex(cmdPos.getFilePath(), cmdPos.getPos(), cmdPos.getLen());
 
                 JSONObject value = JSONObject.parseObject(new String(commandBytes));
                 Command cmd = CommandUtil.jsonToCommand(value);
@@ -249,8 +249,8 @@ public class NormalStore implements Store {
                 RandomAccessFileUtil.writeLogEnd(this.getWalFilePath(), endPoint);
             }
             // 添加索引
-            CommandPos cmdPos = new CommandPos(startPoint, commandBytes.length);
-            index.put(key, cmdPos);
+//            CommandPos cmdPos = new CommandPos(startPoint, commandBytes.length,this.getDiskFilePath());
+//            index.put(key, cmdPos);
 
         } catch (Throwable t) {
             throw new RuntimeException(t);
@@ -284,7 +284,7 @@ public class NormalStore implements Store {
 
                     int startPoint = RandomAccessFileUtil.writeInt(this.getDiskFilePath(), commandBytes.length);
                     RandomAccessFileUtil.write(this.getDiskFilePath(), commandBytes);
-                    CommandPos cmdPos = new CommandPos(startPoint, commandBytes.length);
+                    CommandPos cmdPos = new CommandPos(startPoint, commandBytes.length,this.getDiskFilePath());
                     index.put(key, cmdPos);
                 }
                 if (file.length() > MAX_DATA_FILE_SIZE) {
@@ -314,8 +314,12 @@ public class NormalStore implements Store {
                 byte[] commandBytes = new byte[length];
                 logFile.readFully(commandBytes);
 
-                SetCommand command = JSONObject.parseObject(commandBytes, SetCommand.class);
-                memTable.put(command.getKey(), command);
+                Command command = JSONObject.parseObject(commandBytes, Command.class);
+                if (command instanceof SetCommand) {
+                    memTable.put(command.getKey(), command);
+                } else if (command instanceof RmCommand) {
+                    memTable.remove(command.getKey());
+                }
 
                 if (isJump && logFile.getFilePointer() == len){
                     logFile.seek(Integer.BYTES * 2);
@@ -345,7 +349,7 @@ public class NormalStore implements Store {
     private boolean isCommandInDisk(String key, Command command, CommandPos cmdPos) {
         // 检查磁盘上是否存在相应的命令，并且内容一致
         try {
-            RandomAccessFile file = new RandomAccessFile(this.getDiskFilePath(), "r");
+            RandomAccessFile file = new RandomAccessFile(cmdPos.getFilePath(), "r");
             file.seek(cmdPos.getPos());
             int length = file.readInt();
             byte[] commandBytes = new byte[length];

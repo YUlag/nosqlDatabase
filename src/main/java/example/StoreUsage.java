@@ -20,16 +20,15 @@ public class StoreUsage {
     public static void main(String[] args) {
         String dataDir = "data" + File.separator;
         try (NormalStore store = new NormalStore(dataDir, 100)) { // 自动关闭store
-            for (int i = 0; i < 1000; i++){
-                store.set("fzx" + i,"" + i);
-                System.out.println("set " + i);
-            }
-////
-//            for (int i = 0; i < 100; i++){ // 阈值959
-//                store.rm("fzx" + i);
-//                sleep(100);
-//                System.out.println("rm " + i);
+//            for (int i = 0; i < 1000; i++){
+//                store.set("fzx" + i,"" + i);
+//                System.out.println("set " + i);
 //            }
+////
+            for (int i = 500; i < 980; i++){ // 阈值959
+                store.rm("fzx" + i);
+                System.out.println("rm " + i);
+            }
 //            store.set("zsy1", "1");
 //            store.set("zsy2", "2");
 //            store.set("zsy3", "3");

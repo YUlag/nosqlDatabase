@@ -17,7 +17,7 @@ import java.nio.charset.StandardCharsets;
 
 public class RandomAccessFileUtil {
     private static final String RW_MODE = "rw";
-    private static final String diskFilePath = "data" + File.separator + File.separator + "data" + ".data";
+    private static final String diskFilePath = "data" + File.separator + File.separator + "data_1" + ".data";
 
     public static int write(String filePath, byte[] value) throws IOException {
         RandomAccessFile file = null;
