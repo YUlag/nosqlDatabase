@@ -29,4 +29,10 @@ public class LoggerUtil {
             logger.error(format, arguments, t);
         }
     }
+
+    public static void warn(Logger logger, String format, Object... arguments) {
+        if (logger.isWarnEnabled()) {
+            logger.warn(format, arguments);
+        }
+    }
 }

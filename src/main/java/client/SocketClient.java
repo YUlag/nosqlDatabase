@@ -1,5 +1,5 @@
 /*
- *@Type SocketClient.java
+ *@Type SocketClientMain.java
  * @Desc
  * @Author urmsone urmsone@163.com
  * @date 2024/6/13 13:15
@@ -32,9 +32,9 @@ public class SocketClient implements Client {
             ActionDTO dto = new ActionDTO(ActionTypeEnum.SET, key, value);
             oos.writeObject(dto);
             oos.flush();
+            // 接收响应数据
             RespDTO resp = (RespDTO) ois.readObject();
             System.out.println("resp data: "+ resp.toString());
-            // 接收响应数据
         } catch (IOException | ClassNotFoundException e) {
             e.printStackTrace();
         }
@@ -49,9 +49,9 @@ public class SocketClient implements Client {
             ActionDTO dto = new ActionDTO(ActionTypeEnum.GET, key, null);
             oos.writeObject(dto);
             oos.flush();
+            // 接收响应数据
             RespDTO resp = (RespDTO) ois.readObject();
             System.out.println("resp data: "+ resp.toString());
-            // 接收响应数据
         } catch (IOException | ClassNotFoundException e) {
             e.printStackTrace();
         }
@@ -60,7 +60,35 @@ public class SocketClient implements Client {
 
     @Override
     public void rm(String key) {
-
+        try (Socket socket = new Socket(host, port);
+             ObjectOutputStream oos = new ObjectOutputStream(socket.getOutputStream());
+             ObjectInputStream ois = new ObjectInputStream(socket.getInputStream())) {
+            // 传输序列化对象
+            ActionDTO dto = new ActionDTO(ActionTypeEnum.RM, key, null);
+            oos.writeObject(dto);
+            oos.flush();
+            // 接收响应数据
+            RespDTO resp = (RespDTO) ois.readObject();
+            System.out.println("resp data: "+ resp.toString());
+        } catch (IOException | ClassNotFoundException e) {
+            e.printStackTrace();
+        }
     }
 
+    @Override
+    public void close() {
+        try (Socket socket = new Socket(host, port);
+             ObjectOutputStream oos = new ObjectOutputStream(socket.getOutputStream());
+             ObjectInputStream ois = new ObjectInputStream(socket.getInputStream())) {
+            // 传输序列化对象
+            ActionDTO dto = new ActionDTO(ActionTypeEnum.CLOSE, null,null);
+            oos.writeObject(dto);
+            oos.flush();
+            // 接收响应数据
+            RespDTO resp = (RespDTO) ois.readObject();
+            System.out.println("resp data: "+ resp.toString());
+        } catch (IOException | ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+    }
 }

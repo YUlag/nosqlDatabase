@@ -63,4 +63,26 @@ public class RandomAccessFileUtil {
         return null;
     }
 
+    public static void writeLogStart(String filePath, int value) {
+        RandomAccessFile file = null;
+        try {
+            file = new RandomAccessFile(filePath, RW_MODE);
+            file.writeInt(value);
+            file.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static void writeLogEnd(String filePath, int value) {
+        RandomAccessFile file = null;
+        try {
+            file = new RandomAccessFile(filePath, RW_MODE);
+            file.seek(Integer.BYTES);
+            file.writeInt(value);
+            file.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
 }

@@ -52,6 +52,11 @@ public class SocketServerController implements Controller {
     }
 
     @Override
+    public void close() {
+
+    }
+
+    @Override
     public void startServer() {
         try (ServerSocket serverSocket = new ServerSocket(port)) {
             LoggerUtil.info(LOGGER, logFormat,"startServer","Server started, waiting for connections...");

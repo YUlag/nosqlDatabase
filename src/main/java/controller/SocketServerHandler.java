@@ -11,6 +11,7 @@ import dto.ActionDTO;
 import dto.ActionTypeEnum;
 import dto.RespDTO;
 import dto.RespStatusTypeEnum;
+import factory.ActionHandlerFactory;
 import service.NormalStore;
 import service.Store;
 import utils.LoggerUtil;
@@ -42,23 +43,17 @@ public class SocketServerHandler implements Runnable {
             LoggerUtil.debug(LOGGER, "[SocketServerHandler][ActionDTO]: {}", dto.toString());
             System.out.println("" + dto.toString());
 
-            // 处理命令逻辑(TODO://改成可动态适配的模式)
-            if (dto.getType() == ActionTypeEnum.GET) {
-                String value = this.store.get(dto.getKey());
-                LoggerUtil.debug(LOGGER, "[SocketServerHandler][run]: {}", "get action resp" + dto.toString());
-                RespDTO resp = new RespDTO(RespStatusTypeEnum.SUCCESS, value);
-                oos.writeObject(resp);
+            // 处理命令逻辑 改成可动态适配的模式)
+            ActionHandlerFactory factory = new ActionHandlerFactory(store);
+            ActionHandler handler = factory.getHandler(dto.getType());
+
+            if (handler != null) {
+                handler.handleAction(dto, oos);
+            } else {
+                LoggerUtil.warn(LOGGER, "[SocketServerHandler][run]: Unsupported action type: {}", dto.getType());
+                RespDTO respUnsupported = new RespDTO(RespStatusTypeEnum.FAIL, "Unsupported action type");
+                oos.writeObject(respUnsupported);
                 oos.flush();
-            }
-            if (dto.getType() == ActionTypeEnum.SET) {
-                this.store.set(dto.getKey(), dto.getValue());
-                LoggerUtil.debug(LOGGER, "[SocketServerHandler][run]: {}", "set action resp" + dto.toString());
-                RespDTO resp = new RespDTO(RespStatusTypeEnum.SUCCESS, null);
-                oos.writeObject(resp);
-                oos.flush();
-            }
-            if (dto.getType() == ActionTypeEnum.RM) {
-                this.store.rm(dto.getKey());
             }
 
         } catch (IOException | ClassNotFoundException e) {

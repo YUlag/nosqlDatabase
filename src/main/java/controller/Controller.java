@@ -14,5 +14,7 @@ public interface Controller {
 
     void rm(String key);
 
+    void close();
+
     void startServer();
 }
