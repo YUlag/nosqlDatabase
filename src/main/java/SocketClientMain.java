@@ -22,9 +22,9 @@ public class SocketClientMain {
 //            client.set("fzx" + i,"" + i);
 //        }
 
-        for(int i = 500;i < 1000;i++){
-            client.rm("fzx" + i);
-        }
+//        for(int i = 500;i < 1000;i++){
+//            client.rm("fzx" + i);
+//        }
 
         Scanner scanner = new Scanner(System.in);
         while (true) {

@@ -22,6 +22,8 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Matcher;
@@ -111,6 +113,7 @@ public class NormalStore implements Store {
         this.replayLog(); //恢复日志
         this.checkConsistency(); //检查一致性
         this.reloadIndex(); // 恢复索引
+        this.startMonitoring(); // 开启定时压缩
     }
 
     public String getWalFilePath() {
@@ -415,7 +418,7 @@ public class NormalStore implements Store {
         });
     }
 
-    private void compressFile(File fileToCompress) throws IOException {
+    public void compressFile(File fileToCompress) throws IOException {
         try {
             TreeMap<String, Command> latestEntries;
             try (RandomAccessFile file = new RandomAccessFile(fileToCompress, RW_MODE)) { // 压缩操作
@@ -470,18 +473,18 @@ public class NormalStore implements Store {
         }
     }
 
-    public static void appendFiles(String file1, String file2, String outputFile) throws IOException {
-        String tempFile = "temp.data";
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(tempFile))) {
-            // 读取并写入第一个文件的数据
-            try (BufferedReader reader = new BufferedReader(new FileReader(file1))) {
+    public static void appendFiles(String newfile, String oldfile) throws IOException { // 创建时间新旧
+        String tempFile1 = "temp.data";
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(tempFile1))) {
+            // 读取并写入更旧文件的数据
+            try (BufferedReader reader = new BufferedReader(new FileReader(oldfile))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     writer.write(line);
                 }
             }
-            // 读取并写入第二个文件的数据
-            try (BufferedReader reader = new BufferedReader(new FileReader(file2))) {
+            // 读取并写入更新文件的数据
+            try (BufferedReader reader = new BufferedReader(new FileReader(newfile))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     writer.write(line);
@@ -489,10 +492,12 @@ public class NormalStore implements Store {
             }
         }
         // 将临时文件重命名为目标文件
-        File oldFile = new File(outputFile);
-        oldFile.delete(); // 删除旧的data.data文件
-        File newFile = new File(tempFile);
-        newFile.renameTo(oldFile);
+        File oldFile = new File(oldfile);
+        File newFile = new File(newfile);
+        File tempFile = new File(tempFile1);
+        newFile.delete(); // 删除旧的data.data文件
+        oldFile.delete();
+        tempFile.renameTo(oldFile);
     }
 
     private Deque<String> getDataFiles(String directoryPath) {
@@ -528,5 +533,23 @@ public class NormalStore implements Store {
         }
     }
 
+    public void monitorAndMerge() {
+        synchronized (getLock) {
+            try {
+                // 持续监测队列，直到程序结束
+                while (dataFiles.size() >= 3) {
+                    // 执行合并操作
+                    appendFiles(dataFiles.pollFirst(),dataFiles.peekFirst());
+                    this.compressFile(new File(dataFiles.peekFirst()));
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+    }
 
+    public void startMonitoring() {
+        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+        scheduler.scheduleAtFixedRate(this::monitorAndMerge, 0, 10, TimeUnit.SECONDS);
+    }
 }
