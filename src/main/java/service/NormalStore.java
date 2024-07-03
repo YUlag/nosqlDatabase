@@ -41,9 +41,14 @@ public class NormalStore implements Store {
 
 
     /**
-     * 内存表，类似缓存
+     * 读写表
      */
-    private TreeMap<String, Command> memTable;
+    private TreeMap<String, Command> readWriteTable;
+
+    /**
+     * 只读表
+     */
+    private TreeMap<String, Command> readOnlyTable;
 
     /**
      * hash索引，存的是数据长度和偏移量
@@ -93,7 +98,7 @@ public class NormalStore implements Store {
     public NormalStore(String dataDir, Integer storeThreshold) {
         this.dataDir = dataDir;
         this.indexLock = new ReentrantReadWriteLock();
-        this.memTable = new TreeMap<String, Command>();
+        this.readWriteTable = new TreeMap<String, Command>();
         this.index = new HashMap<>();
         this.storeThreshold = storeThreshold;
         this.dataFiles = this.getDataFiles(dataDir);
@@ -168,8 +173,8 @@ public class NormalStore implements Store {
             // 加锁
             indexLock.writeLock().lock();
             // 先写内存表，内存表达到一定阀值再写进磁盘
-            memTable.put(key, command);
-            if (memTable.size() >= storeThreshold) {
+            readWriteTable.put(key, command);
+            if (readWriteTable.size() >= storeThreshold) {
                 flushMemTableToDisk();
             }
             // 写table（wal）文件
@@ -196,10 +201,20 @@ public class NormalStore implements Store {
     public String get(String key) {
         synchronized (getLock) {
             try {
-                indexLock.readLock().lock();
-                // 从内存表中获取信息
-                if (memTable.containsKey(key)) {
-                    Command cmd = memTable.get(key);
+                // 先从只读表中获取信息
+                if (readOnlyTable.containsKey(key)) {
+                    Command cmd = readOnlyTable.get(key);
+                    if (cmd instanceof SetCommand) {
+                        return ((SetCommand) cmd).getValue();
+                    }
+                    if (cmd instanceof RmCommand) {
+                        return null;
+                    }
+                }
+
+                // 再尝试从读写表中获取信息
+                if (readWriteTable.containsKey(key)) {
+                    Command cmd = readWriteTable.get(key);
                     if (cmd instanceof SetCommand) {
                         return ((SetCommand) cmd).getValue();
                     }
@@ -226,8 +241,6 @@ public class NormalStore implements Store {
 
             } catch (Throwable t) {
                 throw new RuntimeException(t);
-            } finally {
-                indexLock.readLock().unlock();
             }
         }
         return null;
@@ -238,11 +251,9 @@ public class NormalStore implements Store {
         try {
             RmCommand command = new RmCommand(key);
             byte[] commandBytes = JSONObject.toJSONBytes(command);
-            // 加锁
-            indexLock.writeLock().lock();
             // 先写内存表，内存表达到一定阀值再写进磁盘
-            memTable.put(key, command);
-            if (memTable.size() >= storeThreshold) {
+            readWriteTable.put(key, command);
+            if (readWriteTable.size() >= storeThreshold) {
                 flushMemTableToDisk();
             }
             // 写table（wal）文件
@@ -260,8 +271,6 @@ public class NormalStore implements Store {
 
         } catch (Throwable t) {
             throw new RuntimeException(t);
-        } finally {
-            indexLock.writeLock().unlock();
         }
     }
 
@@ -280,10 +289,11 @@ public class NormalStore implements Store {
     }
 
     private void flushMemTableToDisk() {
+        transferToReadOnly();
         try {
             // 打开一个磁盘文件用于写入
             try (RandomAccessFile file = new RandomAccessFile(this.getDiskFilePath(), RW_MODE)) {
-                for (Map.Entry<String, Command> entry : memTable.entrySet()) {
+                for (Map.Entry<String, Command> entry : readOnlyTable.entrySet()) {
                     String key = entry.getKey();
                     Command command = entry.getValue();
                     byte[] commandBytes = JSONObject.toJSONBytes(command);
@@ -298,8 +308,7 @@ public class NormalStore implements Store {
                     rotateDataFile();
                 }
             }
-            // 清空内存表和WAL文件(伪清空)
-            memTable.clear();
+            // 清空WAL文件(伪清空)
             clearWAL();
         } catch (IOException e) {
             throw new RuntimeException("Failed to flush memTable to disk", e);
@@ -322,9 +331,9 @@ public class NormalStore implements Store {
 
                 Command command = JSONObject.parseObject(commandBytes, Command.class);
                 if (command instanceof SetCommand) {
-                    memTable.put(command.getKey(), command);
+                    readWriteTable.put(command.getKey(), command);
                 } else if (command instanceof RmCommand) {
-                    memTable.remove(command.getKey());
+                    readWriteTable.remove(command.getKey());
                 }
 
                 if (isJump && logFile.getFilePointer() == len) {
@@ -339,7 +348,7 @@ public class NormalStore implements Store {
 
     private void checkConsistency() {
         // 遍历内存表，检查每个键的索引是否一致
-        for (Map.Entry<String, Command> entry : memTable.entrySet()) {
+        for (Map.Entry<String, Command> entry : readWriteTable.entrySet()) {
             String key = entry.getKey();
             Command command = entry.getValue();
             CommandPos cmdPos = index.get(key);
@@ -504,4 +513,20 @@ public class NormalStore implements Store {
 
         return dataFilesList;
     }
+
+    // 转移数据到只读表
+    private void transferToReadOnly() {
+        try {
+            indexLock.writeLock().lock();
+            TreeMap<String, Command> temp = readWriteTable;
+            readWriteTable = new TreeMap<String, Command>();
+            readOnlyTable = temp;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        } finally {
+            indexLock.writeLock().unlock();
+        }
+    }
+
+
 }
