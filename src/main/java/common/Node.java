@@ -9,9 +9,9 @@ import java.util.AbstractMap.SimpleEntry;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.UUID;
 
 public class Node implements Serializable {
-
     /** 是否为叶子节点 */
     protected boolean isLeaf;
 
@@ -21,23 +21,17 @@ public class Node implements Serializable {
     /** 父节点文件名 */
     protected String parentFileName;
 
-    /** 父节点 */
-    protected Node parent;
-
+    /** 叶节点的前节点文件名 */
     protected String previousFileName;
-    /** 叶节点的前节点*/
-    protected Node previous;
 
+    /** 叶节点的后节点文件名 */
     protected String nextFileName;
-    /** 叶节点的后节点*/
-    protected Node next;
 
     /** 节点的关键字 */
     protected List<Entry<Comparable, Object>> entries;
 
+    /** 子节点文件名 */
     protected List<String> childrenFileNames;
-    /** 子节点 */
-    protected List<Node> children;
 
     /** 该节点的文件名 */
     protected String fileName;
@@ -47,20 +41,19 @@ public class Node implements Serializable {
         entries = new ArrayList<Entry<Comparable, Object>>();
 
         if (!isLeaf) {
-            children = new ArrayList<Node>();
+            childrenFileNames = new ArrayList<String>();
         }
 
-        this.fileName = "node_" + System.currentTimeMillis();
+        this.fileName = "node_" + UUID.randomUUID();
     }
 
     public Node(boolean isLeaf, boolean isRoot) {
         this(isLeaf);
         this.isRoot = isRoot;
-
-        this.fileName = "root_" + System.currentTimeMillis();
+        this.fileName = "root_" + UUID.randomUUID();
     }
 
-    public Object get(Comparable key) {  //TODO
+    public Object get(Comparable key, BplusTree tree) {
 
         //如果是叶子节点
         if (isLeaf) {
@@ -72,61 +65,68 @@ public class Node implements Serializable {
             }
             //未找到所要查询的对象
             return null;
-
-            //如果不是叶子节点
-        }else {
+        }
+        //如果不是叶子节点
+        else {
             //如果key小于等于节点最左边的key，沿第一个子节点继续搜索
             if (key.compareTo(entries.get(0).getKey()) <= 0) {
-                return children.get(0).get(key);
+                return getNodeByFileName(childrenFileNames.get(0),tree).get(key,tree);
                 //如果key大于节点最右边的key，沿最后一个子节点继续搜索
             }else if (key.compareTo(entries.get(entries.size()-1).getKey()) >= 0) {
-                return children.get(children.size()-1).get(key);
+                return getNodeByFileName(childrenFileNames.get(childrenFileNames.size()-1),tree).get(key,tree);
                 //否则沿比key大的前一个子节点继续搜索
             }else {
                 for (int i = 0; i < entries.size(); i++) {
                     if (entries.get(i).getKey().compareTo(key) <= 0 && entries.get(i+1).getKey().compareTo(key) > 0) {
-                        return children.get(i).get(key);
+                        return getNodeByFileName(childrenFileNames.get(i),tree).get(key,tree);
                     }
                 }
             }
         }
-
         return null;
     }
 
     public void insertOrUpdate(Comparable key, Object obj, BplusTree tree){
         //如果是叶子节点
         if (isLeaf){
+            Node parent = getNodeByFileName(parentFileName,tree);
             //不需要分裂，直接插入或更新
             if (contains(key) || entries.size() < tree.getOrder()){
                 insertOrUpdate(key, obj);
-                if (parent != null) { //TODO 序列化后还能保持Node信息吗
+                if (parent != null) {
                     //更新父节点
                     parent.updateInsert(tree);
                 }
 
                 //需要分裂
             }else {
+                Node previous = getNodeByFileName(previousFileName,tree);
+                Node next = getNodeByFileName(nextFileName,tree);
                 //分裂成左右两个节点
                 Node left = new Node(true);
                 Node right = new Node(true);
+
+                tree.nodes.put(left.fileName, left);
+                tree.nodes.put(right.fileName, right);
+
                 //设置链接
                 if (previous != null){
-                    previous.setNext(left);
-                    left.setPrevious(previous);
+                    previous.setNext(left.fileName);
+                    left.setPrevious(previous.fileName);
                 }
                 if (next != null) {
-                    next.setPrevious(right);
-                    right.setNext(next);
+                    next.setPrevious(right.fileName);
+                    right.setNext(next.fileName);
                 }
                 if (previous == null){
-                    tree.setHead(left);
+                    tree.setHead(left);  //TODO 应该不会出问题
                 }
 
-                left.setNext(right);
-                right.setPrevious(left);
-                previous = null;
-                next = null;
+                left.setNext(right.fileName);
+                right.setPrevious(left.fileName);
+
+                //previousFileName = null;
+                //nextFileName = null;
 
                 //左右两个节点关键字长度
                 int leftSize = (tree.getOrder() + 1) / 2 + (tree.getOrder() + 1) % 2;
@@ -141,52 +141,58 @@ public class Node implements Serializable {
                 }
 
                 //如果不是根节点
-                if (parent != null) {
+                if (parent != null) { // 读了不该读的孩子节点, 证明父亲节点的孩子节点调整错误 //TODO
                     //调整父子节点关系
-                    int index = parent.getChildren().indexOf(this);
-                    parent.getChildren().remove(this);
-                    left.setParent(parent);
-                    right.setParent(parent);
-                    parent.getChildren().add(index,left);
-                    parent.getChildren().add(index + 1, right);
-                    setEntries(null);
-                    setChildren(null);
+                    int index = parent.getChildren().indexOf(this.fileName);
+                    parent.getChildren().remove(this.fileName);
+                    left.setParent(parent.fileName);
+                    right.setParent(parent.fileName);
+                    parent.getChildren().add(index,left.fileName);
+                    parent.getChildren().add(index + 1, right.fileName);
+
+                    //setEntries(null);
+                    //setChildren(null);
 
                     //父节点插入或更新关键字
                     parent.updateInsert(tree);
-                    setParent(null);
+
+                    // setParent(null); //TODO 是否将这个无用的节点从nodes中移出, 并在文件列表里剔除
                     //如果是根节点
                 }else {
                     isRoot = false;
-                    Node parent = new Node(false, true);
-                    tree.setRoot(parent);
-                    left.setParent(parent);
-                    right.setParent(parent);
-                    parent.getChildren().add(left);
-                    parent.getChildren().add(right);
-                    setEntries(null);
-                    setChildren(null);
+                    Node newParent = new Node(false, true);
+                    tree.nodes.put(newParent.fileName, newParent);
+
+                    tree.setRoot(newParent);
+                    left.setParent(newParent.fileName);
+                    right.setParent(newParent.fileName);
+
+                    newParent.getChildren().add(left.fileName);
+                    newParent.getChildren().add(right.fileName);
+
+                    //setEntries(null);
+                    //setChildren(null);
 
                     //更新根节点
-                    parent.updateInsert(tree);
+                    newParent.updateInsert(tree);
                 }
-
-
+                tree.nodes.remove(this.fileName);
+                tree.deletedFiles.add(this.fileName); //TODO 是否将这个无用的节点从nodes中移出, 并在文件列表里剔除
             }
-
-            //如果不是叶子节点
-        }else {
+        }
+        //如果不是叶子节点
+        else {
             //如果key小于等于节点最左边的key，沿第一个子节点继续搜索
             if (key.compareTo(entries.get(0).getKey()) <= 0) {
-                children.get(0).insertOrUpdate(key, obj, tree);
+                getNodeByFileName(childrenFileNames.get(0),tree).insertOrUpdate(key, obj, tree);
                 //如果key大于节点最右边的key，沿最后一个子节点继续搜索
             }else if (key.compareTo(entries.get(entries.size()-1).getKey()) >= 0) {
-                children.get(children.size()-1).insertOrUpdate(key, obj, tree);
+                getNodeByFileName(childrenFileNames.get(childrenFileNames.size()-1),tree).insertOrUpdate(key, obj, tree);
                 //否则沿比key大的前一个子节点继续搜索
             }else {
                 for (int i = 0; i < entries.size(); i++) {
                     if (entries.get(i).getKey().compareTo(key) <= 0 && entries.get(i+1).getKey().compareTo(key) > 0) {
-                        children.get(i).insertOrUpdate(key, obj, tree);
+                        getNodeByFileName(childrenFileNames.get(i),tree).insertOrUpdate(key, obj, tree);
                         break;
                     }
                 }
@@ -200,70 +206,83 @@ public class Node implements Serializable {
         validate(this, tree);
 
         //如果子节点数超出阶数，则需要分裂该节点
-        if (children.size() > tree.getOrder()) {
+        if (childrenFileNames.size() > tree.getOrder()) {
             //分裂成左右两个节点
             Node left = new Node(false);
             Node right = new Node(false);
+
+            tree.nodes.put(left.fileName, left);
+            tree.nodes.put(right.fileName, right);
+
             //左右两个节点关键字长度
             int leftSize = (tree.getOrder() + 1) / 2 + (tree.getOrder() + 1) % 2;
             int rightSize = (tree.getOrder() + 1) / 2;
             //复制子节点到分裂出来的新节点，并更新关键字
             for (int i = 0; i < leftSize; i++){
-                left.getChildren().add(children.get(i));
-                left.getEntries().add(new SimpleEntry(children.get(i).getEntries().get(0).getKey(), null));
-                children.get(i).setParent(left);
+                left.getChildren().add(childrenFileNames.get(i));
+                left.getEntries().add(new SimpleEntry(getNodeByFileName(childrenFileNames.get(i),tree).getEntries().get(0).getKey(), null));
+                getNodeByFileName(childrenFileNames.get(i),tree).setParent(left.fileName);
             }
             for (int i = 0; i < rightSize; i++){
-                right.getChildren().add(children.get(leftSize + i));
-                right.getEntries().add(new SimpleEntry(children.get(leftSize + i).getEntries().get(0).getKey(), null));
-                children.get(leftSize + i).setParent(right);
+                right.getChildren().add(childrenFileNames.get(leftSize + i));
+                right.getEntries().add(new SimpleEntry(getNodeByFileName(childrenFileNames.get(leftSize + i),tree).getEntries().get(0).getKey(), null));
+                getNodeByFileName(childrenFileNames.get(leftSize + i),tree).setParent(right.fileName);
             }
 
             //如果不是根节点
-            if (parent != null) {
+            if (parentFileName != null) {
+                Node parent = getNodeByFileName(parentFileName,tree);
                 //调整父子节点关系
-                int index = parent.getChildren().indexOf(this);
-                parent.getChildren().remove(this);
-                left.setParent(parent);
-                right.setParent(parent);
-                parent.getChildren().add(index,left);
-                parent.getChildren().add(index + 1, right);
-                setEntries(null);
-                setChildren(null);
+                int index = parent.getChildren().indexOf(this.fileName);
+                parent.getChildren().remove(this.fileName);
+                left.setParent(parent.fileName);
+                right.setParent(parent.fileName);
+                parent.getChildren().add(index,left.fileName);
+                parent.getChildren().add(index + 1, right.fileName);
+
+                //setEntries(null);
+                //setChildren(null);
 
                 //父节点更新关键字
                 parent.updateInsert(tree);
+
                 setParent(null);
                 //如果是根节点
             }else {
                 isRoot = false;
                 Node parent = new Node(false, true);
+                tree.nodes.put(parent.fileName, parent);
+
                 tree.setRoot(parent);
-                left.setParent(parent);
-                right.setParent(parent);
-                parent.getChildren().add(left);
-                parent.getChildren().add(right);
-                setEntries(null);
-                setChildren(null);
+                left.setParent(parent.fileName);
+                right.setParent(parent.fileName);
+                parent.getChildren().add(left.fileName);
+                parent.getChildren().add(right.fileName);
+
+                //setEntries(null);
+                //setChildren(null);
 
                 //更新根节点
                 parent.updateInsert(tree);
             }
+            tree.nodes.remove(this.fileName);
+            tree.deletedFiles.add(this.fileName);
         }
+
     }
 
     /** 调整节点关键字*/
-    protected static void validate(Node node, BplusTree tree) {
+    protected void validate(Node node, BplusTree tree) {
 
         // 如果关键字个数与子节点个数相同
         if (node.getEntries().size() == node.getChildren().size()) {
             for (int i = 0; i < node.getEntries().size(); i++) {
-                Comparable key = node.getChildren().get(i).getEntries().get(0).getKey();
+                Comparable key = getNodeByFileName(node.getChildren().get(i),tree).getEntries().get(0).getKey();
                 if (node.getEntries().get(i).getKey().compareTo(key) != 0) {
                     node.getEntries().remove(i);
                     node.getEntries().add(i, new SimpleEntry(key, null));
                     if(!node.isRoot()){
-                        validate(node.getParent(), tree);
+                        validate(getNodeByFileName(node.getParentFileName(),tree), tree);
                     }
                 }
             }
@@ -274,11 +293,11 @@ public class Node implements Serializable {
                 && node.getChildren().size() >= 2) {
             node.getEntries().clear();
             for (int i = 0; i < node.getChildren().size(); i++) {
-                Comparable key = node.getChildren().get(i).getEntries().get(0).getKey();
+                Comparable key = getNodeByFileName(node.getChildren().get(i),tree).getEntries().get(0).getKey();
                 node.getEntries().add(new SimpleEntry(key, null));
-                if (!node.isRoot()) {
-                    validate(node.getParent(), tree);
-                }
+            }
+            if (!node.isRoot()) {
+                validate(getNodeByFileName(node.getParentFileName(),tree), tree);
             }
         }
     }
@@ -323,35 +342,16 @@ public class Node implements Serializable {
         //插入到末尾
         entries.add(entries.size(), entry);
     }
-
-    /** 删除节点*/
-    protected void remove(Comparable key){
-        int index = -1;
-        for (int i = 0; i < entries.size(); i++) {
-            if (entries.get(i).getKey().compareTo(key) == 0) {
-                index = i;
-                break;
-            }
-        }
-        if (index != -1) {
-            entries.remove(index);
-        }
+    public void setPrevious(String previousFileName) {
+        this.previousFileName = previousFileName;
     }
 
-    public Node getPrevious() {
-        return previous;
+    public Node getNext(BplusTree tree) {
+        return getNodeByFileName(nextFileName,tree);
     }
 
-    public void setPrevious(Node previous) {
-        this.previous = previous;
-    }
-
-    public Node getNext() {
-        return next;
-    }
-
-    public void setNext(Node next) {
-        this.next = next;
+    public void setNext(String nextFileName) {
+        this.nextFileName = nextFileName;
     }
 
     public boolean isLeaf() {
@@ -362,12 +362,12 @@ public class Node implements Serializable {
         this.isLeaf = isLeaf;
     }
 
-    public Node getParent() {
-        return parent;
+    public String getParentFileName() {
+        return parentFileName;
     }
 
-    public void setParent(Node parent) {
-        this.parent = parent;
+    public void setParent(String parentFileName) {
+        this.parentFileName = parentFileName;
     }
 
     public List<Entry<Comparable, Object>> getEntries() {
@@ -378,12 +378,12 @@ public class Node implements Serializable {
         this.entries = entries;
     }
 
-    public List<Node> getChildren() {
-        return children;
+    public List<String> getChildren() {
+        return childrenFileNames;
     }
 
-    public void setChildren(List<Node> children) {
-        this.children = children;
+    public void setChildren(List<String> children) {
+        this.childrenFileNames = children;
     }
 
     public boolean isRoot() {
@@ -400,6 +400,17 @@ public class Node implements Serializable {
 
     public void setFile(String fileName) {
         this.fileName = fileName;
+    }
+
+    public Node getNodeByFileName(String fileName,BplusTree tree){
+        Node node = null;
+        node = tree.nodes.get(fileName);
+        if (node == null && fileName != null){
+            node = tree.readNodeFromFile(fileName,"index" + File.separator);
+            tree.nodes.put(fileName, node);
+        }
+
+        return node;
     }
 
     public String toString(){

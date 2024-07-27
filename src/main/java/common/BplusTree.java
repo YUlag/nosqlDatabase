@@ -5,13 +5,11 @@ package common;
  */
 
 import java.io.*;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.Map.Entry;
-import java.util.Random;
 
 public class BplusTree implements B, Serializable {
+    public int count = 0;
 
     /**
      * 根节点文件名
@@ -22,9 +20,6 @@ public class BplusTree implements B, Serializable {
      * 根节点
      */
     protected Node root;
-    {
-        readNodeFromFile(this.rootFile);
-    }
 
     /**
      * 叶子节点的链表头文件名
@@ -35,9 +30,6 @@ public class BplusTree implements B, Serializable {
      * 叶子节点的链表头
      */
     protected Node head;
-    {
-        readNodeFromFile(this.headFile);
-    }
 
     /**
      * 阶数，M值
@@ -47,7 +39,9 @@ public class BplusTree implements B, Serializable {
     /**
      * 存放读取过的节点 类似缓存
      */
-    protected ArrayList<Node> Nodes = new ArrayList<>();
+    protected HashMap<String, Node> nodes = new HashMap<>();
+
+    protected ArrayList<String> deletedFiles = new ArrayList<>();
 
     public Node getHead() {
         return head;
@@ -77,7 +71,7 @@ public class BplusTree implements B, Serializable {
 
     @Override
     public Object get(Comparable key) {
-        return root.get(key);
+        return root.get(key, this);
     }
 
     @Override
@@ -92,12 +86,14 @@ public class BplusTree implements B, Serializable {
         }
         this.order = order;
         root = new Node(true, true); // TODO
+        nodes.put(root.getFileName(), root);
+
         head = root;
     }
 
-    public Node readNodeFromFile(String filePath) {
+    public Node readNodeFromFile(String filePath,String indexDir) {
         Node node = null;
-        try (ObjectInputStream objectInputStream = new ObjectInputStream(new FileInputStream(filePath))) {
+        try (ObjectInputStream objectInputStream = new ObjectInputStream(new FileInputStream(indexDir + filePath))) {
             // 使用 readObject 方法读取序列化的对象
             node = (Node) objectInputStream.readObject();
         } catch (EOFException e) {
@@ -110,39 +106,83 @@ public class BplusTree implements B, Serializable {
         return node;
     }
 
-    //测试
-    public static void main(String[] args) throws IOException {
-        BplusTree tree = new BplusTree(6); //  TODO 如果有Tree文件直接读
-        Random random = new Random();
-        long current = System.currentTimeMillis();
-        for (int j = 0; j < 100000; j++) {
-            for (int i = 0; i < 100; i++) {
-                int randomNumber = random.nextInt(1000);
-                tree.insertOrUpdate(randomNumber, randomNumber);
-            }
+    public void writeNodeToFile(Node node,String indexDir) {
+        try (ObjectOutputStream objectOutputStream = new ObjectOutputStream(new FileOutputStream(indexDir + node.fileName))) {
+            // 使用 writeObject 方法写入对象
+            objectOutputStream.writeObject(node);
+        } catch (IOException e) {
+            // 处理其他可能发生的异常
+            e.printStackTrace();
         }
-        long duration = System.currentTimeMillis() - current;
-        System.out.println("time elpsed for duration: " + duration);
-        int search = 80;
-        System.out.print(tree.get(search));
-        Node next = tree.getHead();
-        int count = 0;
-        while (true) {
-            if (next == null) break;
-            ++count;
-            List<Entry<Comparable, Object>> entries = next.getEntries();
-            File file = new File(String.valueOf(count) + ".txt");
-            next.setFile(file);
-            ObjectOutputStream objectOutputStream =
-                    new ObjectOutputStream(new FileOutputStream(file));
-            objectOutputStream.writeObject(next);
-            objectOutputStream.close();
-            next = next.getNext();
-        }
-        File treeFile = new File("BplusTree.txt");
+    }
+
+    public void wirteTreeToFile(BplusTree tree,String indexDir) throws IOException {
+        File treeFile = new File(indexDir + "BplusTree.txt");
         ObjectOutputStream objectOutputStream =
                 new ObjectOutputStream(new FileOutputStream(treeFile));
         objectOutputStream.writeObject(tree);
         objectOutputStream.close();
+
+    }
+
+    public static BplusTree getTreeFromFile(File treeFile) throws IOException, ClassNotFoundException {
+        ObjectInputStream objectInputStream =
+                new ObjectInputStream(new FileInputStream(treeFile));
+        BplusTree tree = (BplusTree) objectInputStream.readObject();
+        objectInputStream.close();
+        tree.nodes.put(tree.rootFile, tree.root);
+
+        return tree;
+    }
+
+    public void deleteNodeFromFile(String filePath, String indexDir) {
+        File file = new File(indexDir + filePath);
+        if (file.exists()) {
+            file.delete();
+        }
+    }
+
+    public void save(BplusTree tree,String indexDir) throws IOException {
+        for (String filePath : deletedFiles) {
+            deleteNodeFromFile(filePath, indexDir);
+        }
+        deletedFiles.clear();
+
+        for (Node node : nodes.values()) {
+            writeNodeToFile(node,indexDir);
+        }
+        nodes.clear();
+
+        wirteTreeToFile(tree,indexDir);
+    }
+
+    //测试
+    public static void main(String[] args) throws IOException, ClassNotFoundException {
+        String indexDir = "index"+ File.separator;
+
+        File treeFile = new File(indexDir + "BplusTree.txt");
+        BplusTree tree = null;
+
+        if (treeFile.exists()) {
+            tree = getTreeFromFile(treeFile);
+        } else {
+            tree = new BplusTree(100);
+        }
+
+        Random random = new Random();
+
+        long current = System.currentTimeMillis();
+
+        for (int i = 11000; i < 22000; i++) {
+            tree.insertOrUpdate(i, i+1);
+        }
+
+        long duration = System.currentTimeMillis() - current;
+        System.out.println("time elpsed for duration: " + duration);
+
+        int search = 9999;
+        System.out.print(tree.get(search));
+
+        tree.save(tree,indexDir);
     }
 }
