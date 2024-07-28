@@ -12,10 +12,11 @@ import service.NormalStore;
 import service.Store;
 
 import java.io.File;
+import java.io.IOException;
 
 public class SocketServerUsage { //通过Socket操作Store C/S
     public static final int storeThreshold = 1000;
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException, ClassNotFoundException {
         String host = "localhost";
         int port = 12345;
         String dataDir = "data"+ File.separator;

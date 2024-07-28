@@ -9,6 +9,7 @@ package service;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
+import common.BplusTree;
 import model.command.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,9 +54,9 @@ public class NormalStore implements Store {
     private TreeMap<String, Command> readOnlyTable;
 
     /**
-     * hash索引，存的是数据长度和偏移量
+     * B+树索引，存的是数据长度和偏移量
      */
-    private HashMap<String, CommandPos> index;
+    private BplusTree index;
 
     /**
      * 数据目录
@@ -97,11 +98,11 @@ public class NormalStore implements Store {
      */
     private Deque<String> dataFiles;
 
-    public NormalStore(String dataDir, Integer storeThreshold) {
+    public NormalStore(String dataDir, Integer storeThreshold) throws IOException, ClassNotFoundException {
         this.dataDir = dataDir;
         this.indexLock = new ReentrantReadWriteLock();
         this.readWriteTable = new TreeMap<String, Command>();
-        this.index = new HashMap<>();
+        this.index = new BplusTree();
         this.storeThreshold = storeThreshold;
         this.dataFiles = this.getDataFiles(dataDir);
 
@@ -112,7 +113,7 @@ public class NormalStore implements Store {
         }
         this.replayLog(); //恢复日志
         this.checkConsistency(); //检查一致性
-        this.reloadIndex(); // 恢复索引
+        //this.reloadIndex(); // 恢复索引 TODO: 索引持久化后还需要恢复吗
         this.startMonitoring(); // 开启定时压缩
     }
 
@@ -139,6 +140,7 @@ public class NormalStore implements Store {
     public void reloadIndex() {
         try {
             index.clear();
+
             Deque<String> dataFiles_temp = new ArrayDeque<>(this.dataFiles);
             while (!dataFiles_temp.isEmpty()) {
                 String pollFile = dataFiles_temp.poll();
@@ -155,13 +157,14 @@ public class NormalStore implements Store {
                         start += Integer.BYTES;
                         if (command != null) {
                             CommandPos cmdPos = new CommandPos((int) start, cmdLen, pollFile);
-                            index.put(command.getKey(), cmdPos);
+                            index.insertOrUpdate(command.getKey(), cmdPos);
                         }
                         start += cmdLen;
                     }
                     file.seek(file.length());
 //                    LoggerUtil.debug(LOGGER, logFormat, "reload index: " + index.toString()); TODO:
                 }//随机读写文件
+                index.save(index);
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -189,10 +192,6 @@ public class NormalStore implements Store {
             } else {
                 RandomAccessFileUtil.writeLogEnd(this.getWalFilePath(), endPoint);
             }
-            // 添加索引 统一在落盘时添加
-//            CommandPos cmdPos = new CommandPos(startPoint, commandBytes.length,this.getDiskFilePath());
-//            index.put(key, cmdPos);
-
         } catch (Throwable t) {
             throw new RuntimeException(t);
         } finally {
@@ -227,10 +226,14 @@ public class NormalStore implements Store {
                 }
 
                 // 从索引中获取信息
-                CommandPos cmdPos = index.get(key);
+                CommandPos cmdPos = null;
+                synchronized (getLock) { // 等待压缩后的索引重置
+                    cmdPos = (CommandPos) index.get(key);
+                }
                 if (cmdPos == null) {
                     return null;
                 }
+
                 byte[] commandBytes = RandomAccessFileUtil.readByIndex(cmdPos.getFilePath(), cmdPos.getPos(), cmdPos.getLen());
 
                 JSONObject value = JSONObject.parseObject(new String(commandBytes));
@@ -241,7 +244,6 @@ public class NormalStore implements Store {
                 if (cmd instanceof RmCommand) {
                     return null;
                 }
-
             } catch (Throwable t) {
                 throw new RuntimeException(t);
             }
@@ -268,10 +270,6 @@ public class NormalStore implements Store {
             } else {
                 RandomAccessFileUtil.writeLogEnd(this.getWalFilePath(), endPoint);
             }
-            // 添加索引
-//            CommandPos cmdPos = new CommandPos(startPoint, commandBytes.length,this.getDiskFilePath());
-//            index.put(key, cmdPos);
-
         } catch (Throwable t) {
             throw new RuntimeException(t);
         }
@@ -304,8 +302,9 @@ public class NormalStore implements Store {
                     int startPoint = RandomAccessFileUtil.writeInt(this.getDiskFilePath(), commandBytes.length);
                     RandomAccessFileUtil.write(this.getDiskFilePath(), commandBytes);
                     CommandPos cmdPos = new CommandPos(startPoint, commandBytes.length, this.getDiskFilePath());
-                    index.put(key, cmdPos);
+                    index.insertOrUpdate(key, cmdPos);
                 }
+                index.save(index);
                 if (file.length() > MAX_DATA_FILE_SIZE) {
                     file.close();
                     rotateDataFile();
@@ -354,17 +353,17 @@ public class NormalStore implements Store {
         for (Map.Entry<String, Command> entry : readWriteTable.entrySet()) {
             String key = entry.getKey();
             Command command = entry.getValue();
-            CommandPos cmdPos = index.get(key);
+            CommandPos cmdPos = (CommandPos) index.get(key);
 
             // 如果索引不存在或不一致，将内存表中的数据写回磁盘
-            if (cmdPos == null || !isCommandInDisk(key, command, cmdPos)) {
+            if (cmdPos == null || !isCommandInDisk(command, cmdPos)) {
                 flushMemTableToDisk();
                 return;
             }
         }
     }
 
-    private boolean isCommandInDisk(String key, Command command, CommandPos cmdPos) {
+    private boolean isCommandInDisk(Command command, CommandPos cmdPos) {
         // 检查磁盘上是否存在相应的命令，并且内容一致
         try {
             RandomAccessFile file = new RandomAccessFile(cmdPos.getFilePath(), "r");
@@ -463,8 +462,6 @@ public class NormalStore implements Store {
 //            appendFiles(this.getOldFilePath(), this.getDiskFilePath(), this.getDiskFilePath());
 //            fileToCompress.delete();
 //            indexLock.writeLock().unlock();
-
-
             reloadIndex();
 
             LoggerUtil.debug(LOGGER, logFormat, "Compression is complete");

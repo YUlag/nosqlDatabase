@@ -9,8 +9,7 @@ import java.util.*;
 import java.util.Map.Entry;
 
 public class BplusTree implements B, Serializable {
-    public int count = 0;
-
+    String indexDir = "index"+ File.separator;
     /**
      * 根节点文件名
      */
@@ -85,10 +84,28 @@ public class BplusTree implements B, Serializable {
             System.exit(0);
         }
         this.order = order;
-        root = new Node(true, true); // TODO
+        root = new Node(true, true);
         nodes.put(root.getFileName(), root);
 
         head = root;
+    }
+
+    public BplusTree() throws IOException, ClassNotFoundException {
+        File treeFile = new File(indexDir + "BplusTree.txt");
+        BplusTree tree = null;
+
+        if (treeFile.exists()) {
+            tree = getTreeFromFile(treeFile);
+        } else {
+            tree = new BplusTree(100);
+        }
+
+        root = tree.root;
+        rootFile = root.getFileName();
+        head = tree.head;
+        headFile = head.getFileName();
+        order = tree.order;
+        nodes.put(root.getFileName(), root);
     }
 
     public Node readNodeFromFile(String filePath,String indexDir) {
@@ -116,7 +133,7 @@ public class BplusTree implements B, Serializable {
         }
     }
 
-    public void wirteTreeToFile(BplusTree tree,String indexDir) throws IOException {
+    public void wirteTreeToFile(BplusTree tree) throws IOException {
         File treeFile = new File(indexDir + "BplusTree.txt");
         ObjectOutputStream objectOutputStream =
                 new ObjectOutputStream(new FileOutputStream(treeFile));
@@ -135,16 +152,16 @@ public class BplusTree implements B, Serializable {
         return tree;
     }
 
-    public void deleteNodeFromFile(String filePath, String indexDir) {
+    public void deleteNodeFromFile(String filePath) {
         File file = new File(indexDir + filePath);
         if (file.exists()) {
             file.delete();
         }
     }
 
-    public void save(BplusTree tree,String indexDir) throws IOException {
+    public void save(BplusTree tree) throws IOException {
         for (String filePath : deletedFiles) {
-            deleteNodeFromFile(filePath, indexDir);
+            deleteNodeFromFile(filePath);
         }
         deletedFiles.clear();
 
@@ -153,36 +170,48 @@ public class BplusTree implements B, Serializable {
         }
         nodes.clear();
 
-        wirteTreeToFile(tree,indexDir);
+        wirteTreeToFile(tree);
     }
 
+    public void clear() {
+        File folder = new File(indexDir);
+        // 检查文件夹是否存在
+        if (folder.exists() && folder.isDirectory()) {
+            File[] files = folder.listFiles();
+            if (files != null) {
+                for (File file : files) {
+                    if (file.isFile()) {
+                        file.delete(); // 删除文件
+                    }
+                }
+            }
+        }
+
+        root = new Node(true, true);
+        rootFile = root.getFileName();
+        nodes.clear();
+        deletedFiles.clear();
+
+        nodes.put(rootFile, root);
+        head = root;
+        headFile = head.getFileName();
+    }
     //测试
-    public static void main(String[] args) throws IOException, ClassNotFoundException {
-        String indexDir = "index"+ File.separator;
-
-        File treeFile = new File(indexDir + "BplusTree.txt");
-        BplusTree tree = null;
-
-        if (treeFile.exists()) {
-            tree = getTreeFromFile(treeFile);
-        } else {
-            tree = new BplusTree(100);
-        }
-
-        Random random = new Random();
-
-        long current = System.currentTimeMillis();
-
-        for (int i = 11000; i < 22000; i++) {
-            tree.insertOrUpdate(i, i+1);
-        }
-
-        long duration = System.currentTimeMillis() - current;
-        System.out.println("time elpsed for duration: " + duration);
-
-        int search = 9999;
-        System.out.print(tree.get(search));
-
-        tree.save(tree,indexDir);
-    }
+//    public static void main(String[] args) throws IOException, ClassNotFoundException {
+//        Random random = new Random();
+//
+//        long current = System.currentTimeMillis();
+//
+//        for (int i = 11000; i < 22000; i++) {
+//            tree.insertOrUpdate(i, i+1);
+//        }
+//
+//        long duration = System.currentTimeMillis() - current;
+//        System.out.println("time elpsed for duration: " + duration);
+//
+//        int search = 9999;
+//        System.out.print(tree.get(search));
+//
+//        tree.save(tree,indexDir);
+//    }
 }

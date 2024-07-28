@@ -119,7 +119,7 @@ public class Node implements Serializable {
                     right.setNext(next.fileName);
                 }
                 if (previous == null){
-                    tree.setHead(left);  //TODO 应该不会出问题
+                    tree.setHead(left);
                 }
 
                 left.setNext(right.fileName);
@@ -141,7 +141,7 @@ public class Node implements Serializable {
                 }
 
                 //如果不是根节点
-                if (parent != null) { // 读了不该读的孩子节点, 证明父亲节点的孩子节点调整错误 //TODO
+                if (parent != null) {
                     //调整父子节点关系
                     int index = parent.getChildren().indexOf(this.fileName);
                     parent.getChildren().remove(this.fileName);
@@ -156,7 +156,7 @@ public class Node implements Serializable {
                     //父节点插入或更新关键字
                     parent.updateInsert(tree);
 
-                    // setParent(null); //TODO 是否将这个无用的节点从nodes中移出, 并在文件列表里剔除
+                    // setParent(null);
                     //如果是根节点
                 }else {
                     isRoot = false;
@@ -177,7 +177,7 @@ public class Node implements Serializable {
                     newParent.updateInsert(tree);
                 }
                 tree.nodes.remove(this.fileName);
-                tree.deletedFiles.add(this.fileName); //TODO 是否将这个无用的节点从nodes中移出, 并在文件列表里剔除
+                tree.deletedFiles.add(this.fileName);
             }
         }
         //如果不是叶子节点
