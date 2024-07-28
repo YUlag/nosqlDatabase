@@ -4,12 +4,17 @@ package common;
  * Created by hms on 2016/12/12.
  */
 
+import utils.PropertyReaderUtil;
+
 import java.io.*;
 import java.util.*;
-import java.util.Map.Entry;
 
 public class BplusTree implements B, Serializable {
-    String indexDir = "index"+ File.separator;
+    static PropertyReaderUtil configUtil = PropertyReaderUtil.getInstance();
+    public static final String INDEX_DIR = configUtil.getProperty("index.indexDir") + File.separator;
+
+    public static final int DEFAULT_ORDER = Integer.parseInt(configUtil.getProperty("index.defaultOrder"));
+
     /**
      * 根节点文件名
      */
@@ -91,13 +96,13 @@ public class BplusTree implements B, Serializable {
     }
 
     public BplusTree() throws IOException, ClassNotFoundException {
-        File treeFile = new File(indexDir + "BplusTree.txt");
+        File treeFile = new File(INDEX_DIR + "BplusTree.txt");
         BplusTree tree = null;
 
         if (treeFile.exists()) {
             tree = getTreeFromFile(treeFile);
         } else {
-            tree = new BplusTree(100);
+            tree = new BplusTree(DEFAULT_ORDER);
         }
 
         root = tree.root;
@@ -134,7 +139,7 @@ public class BplusTree implements B, Serializable {
     }
 
     public void wirteTreeToFile(BplusTree tree) throws IOException {
-        File treeFile = new File(indexDir + "BplusTree.txt");
+        File treeFile = new File(INDEX_DIR + "BplusTree.txt");
         ObjectOutputStream objectOutputStream =
                 new ObjectOutputStream(new FileOutputStream(treeFile));
         objectOutputStream.writeObject(tree);
@@ -153,7 +158,7 @@ public class BplusTree implements B, Serializable {
     }
 
     public void deleteNodeFromFile(String filePath) {
-        File file = new File(indexDir + filePath);
+        File file = new File(INDEX_DIR + filePath);
         if (file.exists()) {
             file.delete();
         }
@@ -166,7 +171,7 @@ public class BplusTree implements B, Serializable {
         deletedFiles.clear();
 
         for (Node node : nodes.values()) {
-            writeNodeToFile(node,indexDir);
+            writeNodeToFile(node, INDEX_DIR);
         }
         nodes.clear();
         nodes.put(tree.rootFile, tree.root);
@@ -175,7 +180,7 @@ public class BplusTree implements B, Serializable {
     }
 
     public void clear() {
-        File folder = new File(indexDir);
+        File folder = new File(INDEX_DIR);
         // 检查文件夹是否存在
         if (folder.exists() && folder.isDirectory()) {
             File[] files = folder.listFiles();

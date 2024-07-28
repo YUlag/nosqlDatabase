@@ -10,18 +10,20 @@
 import controller.SocketServerController;
 import service.NormalStore;
 import service.Store;
+import utils.PropertyReaderUtil;
 
 import java.io.File;
 import java.io.IOException;
 
 public class SocketServerMain { //通过Socket操作Store C/S
-    public static final int storeThreshold = 1000;
     public static void main(String[] args) throws ClassNotFoundException {
-        String host = "localhost";
-        int port = 12345;
-        String dataDir = "data"+ File.separator;
+        PropertyReaderUtil configUtil = PropertyReaderUtil.getInstance();
+
+        String host = configUtil.getProperty("server.host");
+        int port = Integer.parseInt(configUtil.getProperty("server.port"));
+
         SocketServerController controller;
-        try (Store store = new NormalStore(dataDir, storeThreshold)) {
+        try (Store store = new NormalStore()) {
             controller = new SocketServerController(host, port, store);
         } catch (IOException e) {
             throw new RuntimeException(e);

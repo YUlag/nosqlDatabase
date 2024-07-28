@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import utils.CommandUtil;
 import utils.LoggerUtil;
+import utils.PropertyReaderUtil;
 import utils.RandomAccessFileUtil;
 
 import java.io.*;
@@ -33,15 +34,34 @@ import java.util.Deque;
 import java.util.ArrayDeque;
 
 public class NormalStore implements Store {
-
-    public static final String TABLE = ".table";
-    public static final String DATA = ".data";
-    public static final String RW_MODE = "rw";
-    public static final String NAME = "data_1";
+    static PropertyReaderUtil configUtil = PropertyReaderUtil.getInstance();
+    public static final String TABLE = configUtil.getProperty("myDataBase.table");
+    public static final String DATA = configUtil.getProperty("myDataBase.data");
+    public static final String RW_MODE = configUtil.getProperty("myDataBase.rwMode");
+    public static final String NAME = configUtil.getProperty("myDataBase.name");
     private final Logger LOGGER = LoggerFactory.getLogger(NormalStore.class);
     private final String logFormat = "[NormalStore][{}]: {}";
     private static final ExecutorService compressionExecutor = Executors.newSingleThreadExecutor();
 
+    /**
+     * 数据文件最大大小
+     */
+    private static final int MAX_DATA_FILE_SIZE = Integer.parseInt(configUtil.getProperty("myDataBase.maxDataFileSize"));
+
+    /**
+     * 日志文件最大大小
+     */
+    private static final int MAX_LOG_FILE_SIZE = Integer.parseInt(configUtil.getProperty("myDataBase.maxLogFileSize"));
+
+    /**
+     * 持久化阈值
+     */
+    private static final int STORE_THRESHOLD = Integer.parseInt(configUtil.getProperty("myDataBase.storeThreshold"));
+
+    /**
+     * 数据目录
+     */
+    private final String DATA_DIR = configUtil.getProperty("myDataBase.dataDir") + File.separator;
 
     /**
      * 读写表
@@ -59,11 +79,6 @@ public class NormalStore implements Store {
     private BplusTree index;
 
     /**
-     * 数据目录
-     */
-    private final String dataDir;
-
-    /**
      * 读写锁，支持多线程，并发安全写入
      */
     private final ReadWriteLock indexLock;
@@ -72,21 +87,6 @@ public class NormalStore implements Store {
      * 暂存数据的日志句柄
      */
     private RandomAccessFile writerReader;
-
-    /**
-     * 持久化阈值
-     */
-    private final int storeThreshold;
-
-    /**
-     * 数据文件最大大小
-     */
-    private static final int MAX_DATA_FILE_SIZE = 60 * 1024; // 100kB
-
-    /**
-     * 日志文件最大大小
-     */
-    private static final int MAX_LOG_FILE_SIZE = 5 * 1024; // 5kB
 
     /**
      * 在压缩过程中阻塞get操作
@@ -100,31 +100,28 @@ public class NormalStore implements Store {
      */
     private Deque<String> dataFiles;
 
-    public NormalStore(String dataDir, Integer storeThreshold) throws IOException, ClassNotFoundException {
-        this.dataDir = dataDir;
+    public NormalStore() throws IOException, ClassNotFoundException {
         this.indexLock = new ReentrantReadWriteLock();
         this.readWriteTable = new TreeMap<String, Command>();
         this.index = new BplusTree();
-        this.storeThreshold = storeThreshold;
-        this.dataFiles = this.getDataFiles(dataDir);
+        this.dataFiles = this.getDataFiles(DATA_DIR);
 
-        File file = new File(dataDir);
+        File file = new File(DATA_DIR);
         if (!file.exists()) {
             LoggerUtil.info(LOGGER, logFormat, "NormalStore", "dataDir isn't exist,creating...");
             file.mkdirs();
         }
         this.replayLog(); //恢复日志
         this.checkConsistency(); //检查一致性
-        //this.reloadIndex(); // 恢复索引 TODO: 索引持久化后还需要恢复吗
         this.startMonitoring(); // 开启定时压缩
     }
 
     public String getWalFilePath() {
-        return this.dataDir + File.separator + NAME + TABLE;
+        return this.DATA_DIR + File.separator + NAME + TABLE;
     }
 
     public String getDiskFilePath() {
-        return this.dataDir + File.separator + NAME + DATA;
+        return this.DATA_DIR + File.separator + NAME + DATA;
     }
 
     public String getOldFilePath() {
@@ -135,7 +132,7 @@ public class NormalStore implements Store {
         if (matcher.find()) {
             number = Integer.parseInt(matcher.group(1)) + 1;
         }
-        return this.dataDir + File.separator + "data_" + number + DATA;
+        return this.DATA_DIR + File.separator + "data_" + number + DATA;
     }
 
 
@@ -165,7 +162,6 @@ public class NormalStore implements Store {
                             start += cmdLen;
                         }
                         file.seek(file.length());
-//                    LoggerUtil.debug(LOGGER, logFormat, "reload index: " + index.toString()); TODO:
                     }//随机读写文件
                     index.save(index);
                 }
@@ -184,7 +180,7 @@ public class NormalStore implements Store {
             indexLock.writeLock().lock();
             // 先写内存表，内存表达到一定阀值再写进磁盘
             readWriteTable.put(key, command);
-            if (readWriteTable.size() >= storeThreshold) {
+            if (readWriteTable.size() >= STORE_THRESHOLD) {
                 flushMemTableToDisk();
             }
             // 写table（wal）文件
@@ -262,7 +258,7 @@ public class NormalStore implements Store {
             byte[] commandBytes = JSONObject.toJSONBytes(command);
             // 先写内存表，内存表达到一定阀值再写进磁盘
             readWriteTable.put(key, command);
-            if (readWriteTable.size() >= storeThreshold) {
+            if (readWriteTable.size() >= STORE_THRESHOLD) {
                 flushMemTableToDisk();
             }
             // 写table（wal）文件
@@ -448,7 +444,7 @@ public class NormalStore implements Store {
                 }
                 file.seek(file.length());
             }
-            String tempFilePath = dataDir + File.separator + "data" + DATA + ".temp";
+            String tempFilePath = DATA_DIR + File.separator + "data" + DATA + ".temp";
             File tempFile = new File(tempFilePath);
             for (Map.Entry<String, Command> entry : latestEntries.entrySet()) {
                 try (RandomAccessFile file2 = new RandomAccessFile(tempFile, RW_MODE)) {

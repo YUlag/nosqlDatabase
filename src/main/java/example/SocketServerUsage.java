@@ -20,7 +20,7 @@ public class SocketServerUsage { //通过Socket操作Store C/S
         String host = "localhost";
         int port = 12345;
         String dataDir = "data"+ File.separator;
-        Store store = new NormalStore(dataDir,storeThreshold);
+        Store store = new NormalStore();
         SocketServerController controller = new SocketServerController(host, port, store);
         controller.startServer();
     }

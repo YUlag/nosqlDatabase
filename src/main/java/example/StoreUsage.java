@@ -18,9 +18,7 @@ import static java.lang.Thread.sleep;
 
 public class StoreUsage {
     public static void main(String[] args) {
-        String dataDir = "data" + File.separator;
-
-        try (NormalStore store = new NormalStore(dataDir, 100)) { // 自动关闭store
+        try (NormalStore store = new NormalStore()) { // 自动关闭store
             for (int i = 0; i < 1000; i++){
                 store.set("fzx" + i,"" + i);
                 System.out.println("set " + i);

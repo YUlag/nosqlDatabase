@@ -9,13 +9,17 @@
 
 import client.Client;
 import client.SocketClient;
+import utils.PropertyReaderUtil;
 
 import java.util.Scanner;
 
 public class SocketClientMain {
     public static void main(String[] args) {
-        String host = "localhost";
-        int port = 12345;
+        PropertyReaderUtil configUtil = PropertyReaderUtil.getInstance();
+
+        String host = configUtil.getProperty("server.host");
+        int port = Integer.parseInt(configUtil.getProperty("server.port"));
+
         Client client = new SocketClient(host, port);
 
 //        for(int i = 0;i < 1000;i++){
