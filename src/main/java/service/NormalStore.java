@@ -93,6 +93,8 @@ public class NormalStore implements Store {
      */
     private final Object getLock = new Object();
 
+    private final Object reIndexLock = new Object();
+
     /**
      * data目录下所有.data后缀的文件队列
      */
@@ -138,36 +140,38 @@ public class NormalStore implements Store {
 
 
     public void reloadIndex() {
-        try {
-            index.clear();
+        synchronized (reIndexLock){
+            try {
+                index.clear();
 
-            Deque<String> dataFiles_temp = new ArrayDeque<>(this.dataFiles);
-            while (!dataFiles_temp.isEmpty()) {
-                String pollFile = dataFiles_temp.poll();
-                try (RandomAccessFile file = new RandomAccessFile(pollFile, RW_MODE)) {
-                    long len = file.length();
-                    long start = 0;
-                    file.seek(start);
-                    while (start < len) {
-                        int cmdLen = file.readInt();
-                        byte[] bytes = new byte[cmdLen];
-                        file.read(bytes);
-                        JSONObject value = JSON.parseObject(new String(bytes, StandardCharsets.UTF_8)); //反序列
-                        Command command = CommandUtil.jsonToCommand(value);
-                        start += Integer.BYTES;
-                        if (command != null) {
-                            CommandPos cmdPos = new CommandPos((int) start, cmdLen, pollFile);
-                            index.insertOrUpdate(command.getKey(), cmdPos);
+                Deque<String> dataFiles_temp = new ArrayDeque<>(this.dataFiles);
+                while (!dataFiles_temp.isEmpty()) {
+                    String pollFile = dataFiles_temp.poll();
+                    try (RandomAccessFile file = new RandomAccessFile(pollFile, RW_MODE)) {
+                        long len = file.length();
+                        long start = 0;
+                        file.seek(start);
+                        while (start < len) {
+                            int cmdLen = file.readInt();
+                            byte[] bytes = new byte[cmdLen];
+                            file.read(bytes);
+                            JSONObject value = JSON.parseObject(new String(bytes, StandardCharsets.UTF_8)); //反序列
+                            Command command = CommandUtil.jsonToCommand(value);
+                            start += Integer.BYTES;
+                            if (command != null) {
+                                CommandPos cmdPos = new CommandPos((int) start, cmdLen, pollFile);
+                                index.insertOrUpdate(command.getKey(), cmdPos);
+                            }
+                            start += cmdLen;
                         }
-                        start += cmdLen;
-                    }
-                    file.seek(file.length());
+                        file.seek(file.length());
 //                    LoggerUtil.debug(LOGGER, logFormat, "reload index: " + index.toString()); TODO:
-                }//随机读写文件
-                index.save(index);
+                    }//随机读写文件
+                    index.save(index);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
             }
-        } catch (Exception e) {
-            e.printStackTrace();
         }
     }
 
@@ -302,7 +306,10 @@ public class NormalStore implements Store {
                     int startPoint = RandomAccessFileUtil.writeInt(this.getDiskFilePath(), commandBytes.length);
                     RandomAccessFileUtil.write(this.getDiskFilePath(), commandBytes);
                     CommandPos cmdPos = new CommandPos(startPoint, commandBytes.length, this.getDiskFilePath());
-                    index.insertOrUpdate(key, cmdPos);
+
+                    synchronized (reIndexLock){
+                        index.insertOrUpdate(key, cmdPos);
+                    }
                 }
                 index.save(index);
                 if (file.length() > MAX_DATA_FILE_SIZE) {

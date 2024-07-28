@@ -10,9 +10,11 @@ package model.command;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.io.Serializable;
+
 @Setter
 @Getter
-public class CommandPos {
+public class CommandPos implements Serializable {
     private int pos;
     private int len;
     private String filePath;

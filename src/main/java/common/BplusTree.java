@@ -169,6 +169,7 @@ public class BplusTree implements B, Serializable {
             writeNodeToFile(node,indexDir);
         }
         nodes.clear();
+        nodes.put(tree.rootFile, tree.root);
 
         wirteTreeToFile(tree);
     }
