@@ -1,11 +1,10 @@
-package service;
-
 import org.junit.Before;
 import org.junit.Test;
+import service.NormalStore;
+
 import static org.junit.Assert.*;
 
-public class NormalStoreTest {
-
+public class CRUDTest {
     private NormalStore store;
 
     @Before
@@ -15,12 +14,11 @@ public class NormalStoreTest {
     }
 
     @Test
-    public void testSetAndGet() {
+    public void testSet() {
         // 设置键值对
         String key = "testKey";
         String value = "testValue";
         store.set(key, value);
-
         // 验证 get 方法返回预期的值
         String result = store.get(key);
         assertEquals("Value should match", value, result);
@@ -30,16 +28,22 @@ public class NormalStoreTest {
     public void testRemove() {
         // 先设置一个键值对
         store.set("rmKey", "rmValue");
-
         // 验证键存在
         assertTrue("Key should exist before removal", store.get("rmKey") != null);
-
         // 执行删除操作
         store.rm("rmKey");
-
         // 验证键不存在
         assertNull("Key should not exist after removal", store.get("rmKey"));
     }
 
-    // 可以添加更多的测试方法来测试不同的功能
+    @Test
+    public void testGet() { // 验证持久化后的get方法是否生效
+        String key = "testKey";
+        String value = "testValue";
+
+        String result = store.get(key);
+        assertEquals("Value should match", value, result);
+
+        assertNull("Key should not exist after removal", store.get("rmKey"));
+    }
 }

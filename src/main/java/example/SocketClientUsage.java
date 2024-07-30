@@ -15,10 +15,10 @@ public class SocketClientUsage {
         String host = "localhost";
         int port = 12345;
         Client client = new SocketClient(host, port);
-        client.get("zsy1");
-        client.set("zsy12","for test");
-        client.get("zsy12");
-        client.rm("zsy12");
-        client.get("zsy12");
+        client.get("fzx1");
+        client.set("fzx12","for test");
+        client.get("fzx12");
+        client.rm("fzx12");
+        client.get("fzx12");
     }
 }

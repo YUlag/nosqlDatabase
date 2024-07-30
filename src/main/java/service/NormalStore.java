@@ -32,6 +32,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.Deque;
 import java.util.ArrayDeque;
+import java.util.stream.Collectors;
 
 public class NormalStore implements Store {
     static PropertyReaderUtil configUtil = PropertyReaderUtil.getInstance();
@@ -204,24 +205,28 @@ public class NormalStore implements Store {
         synchronized (getLock) {
             try {
                 // 先从只读表中获取信息
-                if (readOnlyTable.containsKey(key)) {
-                    Command cmd = readOnlyTable.get(key);
-                    if (cmd instanceof SetCommand) {
-                        return ((SetCommand) cmd).getValue();
-                    }
-                    if (cmd instanceof RmCommand) {
-                        return null;
+                if (readOnlyTable != null){
+                    if (readOnlyTable.containsKey(key)) {
+                        Command cmd = readOnlyTable.get(key);
+                        if (cmd instanceof SetCommand) {
+                            return ((SetCommand) cmd).getValue();
+                        }
+                        if (cmd instanceof RmCommand) {
+                            return null;
+                        }
                     }
                 }
 
                 // 再尝试从读写表中获取信息
-                if (readWriteTable.containsKey(key)) {
-                    Command cmd = readWriteTable.get(key);
-                    if (cmd instanceof SetCommand) {
-                        return ((SetCommand) cmd).getValue();
-                    }
-                    if (cmd instanceof RmCommand) {
-                        return null;
+                if (readWriteTable != null){
+                    if (readWriteTable.containsKey(key)) {
+                        Command cmd = readWriteTable.get(key);
+                        if (cmd instanceof SetCommand) {
+                            return ((SetCommand) cmd).getValue();
+                        }
+                        if (cmd instanceof RmCommand) {
+                            return null;
+                        }
                     }
                 }
 
@@ -307,7 +312,9 @@ public class NormalStore implements Store {
                         index.insertOrUpdate(key, cmdPos);
                     }
                 }
-                index.save(index);
+                synchronized (reIndexLock) {
+                    index.save(index);
+                }
                 if (file.length() > MAX_DATA_FILE_SIZE) {
                     file.close();
                     rotateDataFile();
@@ -334,10 +341,19 @@ public class NormalStore implements Store {
                 byte[] commandBytes = new byte[length];
                 logFile.readFully(commandBytes);
 
-                Command command = JSONObject.parseObject(commandBytes, Command.class);
+//                Command command = JSONObject.parseObject(commandBytes, Command.class);
+//                if (command instanceof SetCommand) {
+//                    readWriteTable.put(command.getKey(), command);
+//                } else if (command instanceof RmCommand) {
+//                    readWriteTable.remove(command.getKey());
+//                }
+
+                JSONObject value = JSONObject.parseObject(new String(commandBytes));
+                Command command = CommandUtil.jsonToCommand(value);
                 if (command instanceof SetCommand) {
                     readWriteTable.put(command.getKey(), command);
-                } else if (command instanceof RmCommand) {
+                }
+                if (command instanceof RmCommand) {
                     readWriteTable.remove(command.getKey());
                 }
 
@@ -497,12 +513,32 @@ public class NormalStore implements Store {
         Path dirPath = Paths.get(directoryPath);
 
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(dirPath, "*.data")) {
+            List<Path> sortedFiles = new ArrayList<>();
             for (Path entry : stream) {
                 if (Files.isRegularFile(entry)) {
-                    // 直接使用Path对象的toString方法，然后替换反斜杠
-                    String filePath = entry.toString().replace("\\", "\\\\");
-                    dataFilesList.addFirst(filePath); // 使用 addFirst 将文件路径字符串添加到队列前端
+                    sortedFiles.add(entry);
                 }
+            }
+
+            // 定义正则表达式以提取数字部分
+            Pattern pattern = Pattern.compile("data_(\\d+)\\.data");
+
+            // 对文件路径进行排序
+            List<Path> sortedPaths = sortedFiles.stream()
+                    .sorted(Comparator.comparingInt(path -> {
+                        Matcher matcher = pattern.matcher(path.getFileName().toString());
+                        if (matcher.find()) {
+                            return Integer.parseInt(matcher.group(1));
+                        } else {
+                            return Integer.MAX_VALUE; // 如果没有匹配，返回一个大数
+                        }
+                    }))
+                    .collect(Collectors.toList());
+
+            // 按顺序将文件路径字符串添加到队列前端
+            for (Path path : sortedPaths) {
+                String filePath = path.toString().replace("\\", "\\\\");
+                dataFilesList.addFirst(filePath);
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -530,9 +566,18 @@ public class NormalStore implements Store {
             try {
                 // 持续监测队列，直到程序结束
                 while (dataFiles.size() >= 3) {
-                    // 执行合并操作
-                    appendFiles(dataFiles.pollFirst(),dataFiles.peekFirst());
-                    this.compressFile(new File(dataFiles.peekFirst()));
+                    String firstFilePath = dataFiles.pollFirst();
+                    String secondFilePath = dataFiles.peekFirst();
+
+                    File secondFile = new File(secondFilePath);
+                    // 判断第二个文件的大小是否小于20KB
+                    if (secondFile.length() < 20 * 1024) {
+                        appendFiles(firstFilePath,secondFilePath);
+                        this.compressFile(new File(dataFiles.peekFirst()));
+                    } else {
+                        dataFiles.addFirst(firstFilePath);
+                        break;
+                    }
                 }
             } catch (Exception e) {
                 e.printStackTrace();
@@ -540,7 +585,7 @@ public class NormalStore implements Store {
         }
     }
 
-    public void startMonitoring() {
+    public void startMonitoring() { // 10秒一次
         ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
         scheduler.scheduleAtFixedRate(this::monitorAndMerge, 0, 10, TimeUnit.SECONDS);
     }

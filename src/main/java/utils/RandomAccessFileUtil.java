@@ -56,7 +56,7 @@ public class RandomAccessFileUtil {
         } catch (Exception e) {
             e.printStackTrace();
         }
-        return (int) writeStart;
+        return (int) writeStart + Integer.BYTES;
     }
 
     public static byte[] readByIndex(String filePath, int index, int len) {

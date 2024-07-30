@@ -1,78 +1,84 @@
 package client;
-/*
- *@Type SocketClientUsage.java
- * @Desc
- * @Author urmsone urmsone@163.com
- * @date 2024/6/13 14:07
- * @version
- */
+
+import org.apache.commons.cli.*;
+import service.NormalStore;
+
+import java.io.IOException;
 
 public class CmdClient {
-    public static void main(String[] args) {
-        if (args.length < 3) {
-            printUsage();
-            return;
-        }
+    private NormalStore store;
 
-        String host = args[0];
-        int port;
+    public CmdClient() {
         try {
-            port = Integer.parseInt(args[1]);
-        } catch (NumberFormatException e) {
-            System.err.println("Port must be a number.");
-            printUsage();
-            return;
-        }
-
-        Client client = new SocketClient(host, port);
-
-        String command = args[2];
-        switch (command) {
-            case "set":
-                if (args.length != 5) {
-                    printUsage();
-                    return;
-                }
-                client.set(args[3], args[4]);
-                break;
-
-            case "get":
-                if (args.length != 4) {
-                    printUsage();
-                    return;
-                }
-                client.get(args[3]);
-                break;
-
-            case "rm":
-                if (args.length != 4) {
-                    printUsage();
-                    return;
-                }
-                client.rm(args[3]);
-                break;
-
-            case "close":
-                if (args.length != 3) {
-                    printUsage();
-                    return;
-                }
-                client.close();
-                break;
-
-            case "help":
-            case "-h":
-            default:
-                printUsage();
-                break;
+            this.store = new NormalStore();
+        } catch (IOException | ClassNotFoundException e) {
+            throw new RuntimeException(e);
         }
     }
 
-    private static void printUsage() {
-        System.out.println("Usage:");
-        System.out.println("java SocketClientMain <host> <port> set <key> <value>");
-        System.out.println("java SocketClientMain <host> <port> get <key>");
-        System.out.println("java SocketClientMain <host> <port> rm <key>");
-        System.out.println("java SocketClientMain <host> <port> close");
+    public static void main(String[] args) {
+        CmdClient cmdClient = new CmdClient();
+        CommandLineParser parser = new DefaultParser();
+        Options options = new Options();
+
+        options.addOption("c", "command", true, "Command (set, get, rm, close)")
+                .addOption("k", "key", true, "Key")
+                .addOption("v", "value", true, "Value");
+
+        try {
+            CommandLine cmd = parser.parse(options, args);
+            String command = cmd.getOptionValue("c");
+
+            if (command == null) {
+                printUsage(options);
+                return;
+            }
+
+            switch (command) {
+                case "set":
+                    if (!cmd.hasOption("k") || !cmd.hasOption("v")) {
+                        printUsage(options);
+                        return;
+                    }
+                    cmdClient.store.set(cmd.getOptionValue("k"), cmd.getOptionValue("v"));
+                    break;
+
+                case "get":
+                    if (!cmd.hasOption("k")) {
+                        printUsage(options);
+                        return;
+                    }
+                    String value = cmdClient.store.get(cmd.getOptionValue("k"));
+                    System.out.println("Value: " + value);
+                    break;
+
+                case "rm":
+                    if (!cmd.hasOption("k")) {
+                        printUsage(options);
+                        return;
+                    }
+                    cmdClient.store.rm(cmd.getOptionValue("k"));
+                    break;
+
+                case "close":
+                    cmdClient.store.close();
+                    break;
+
+                case "help":
+                default:
+                    printUsage(options);
+                    break;
+            }
+        } catch (ParseException e) {
+            System.err.println("Failed to parse command line arguments");
+            printUsage(options);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static void printUsage(Options options) {
+        HelpFormatter formatter = new HelpFormatter();
+        formatter.printHelp("CmdClient", options);
     }
 }
