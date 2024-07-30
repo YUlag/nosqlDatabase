@@ -62,7 +62,12 @@ public class NormalStore implements Store {
     /**
      * 数据目录
      */
-    private final String DATA_DIR = configUtil.getProperty("myDataBase.dataDir") + File.separator;
+    private static final String DATA_DIR = configUtil.getProperty("myDataBase.dataDir") + File.separator;
+
+    /**
+     * 监控周期
+     */
+    private static final int MONTIOR_PERIOD = Integer.parseInt(configUtil.getProperty("myDataBase.monitorPeriod"));
 
     /**
      * 读写表
@@ -585,8 +590,8 @@ public class NormalStore implements Store {
         }
     }
 
-    public void startMonitoring() { // 10秒一次
+    public void startMonitoring() { // 默认10秒一次
         ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-        scheduler.scheduleAtFixedRate(this::monitorAndMerge, 0, 10, TimeUnit.SECONDS);
+        scheduler.scheduleAtFixedRate(this::monitorAndMerge, 0, MONTIOR_PERIOD , TimeUnit.SECONDS);
     }
 }
