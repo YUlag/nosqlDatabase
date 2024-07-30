@@ -455,16 +455,8 @@ public class NormalStore implements Store {
                     RandomAccessFileUtil.write(tempFilePath, commandBytes);
                 }
             }
-            // 压缩操作完成->tempFile
-
             Files.move(tempFile.toPath(), fileToCompress.toPath(), StandardCopyOption.REPLACE_EXISTING); // 将tempFile重命名oldFile
 
-//            Thread.sleep(20000); // 模拟压缩时间
-
-//            indexLock.writeLock().lock();
-//            appendFiles(this.getOldFilePath(), this.getDiskFilePath(), this.getDiskFilePath());
-//            fileToCompress.delete();
-//            indexLock.writeLock().unlock();
             reloadIndex();
 
             LoggerUtil.debug(LOGGER, logFormat, "Compression is complete");

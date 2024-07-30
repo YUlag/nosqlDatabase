@@ -69,10 +69,6 @@ public class BplusTree implements B, Serializable {
         return order;
     }
 
-    public void setOrder(int order) {
-        this.order = order;
-    }
-
     @Override
     public Object get(Comparable key) {
         return root.get(key, this);
