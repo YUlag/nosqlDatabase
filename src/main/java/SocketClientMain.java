@@ -22,14 +22,6 @@ public class SocketClientMain {
 
         Client client = new SocketClient(host, port);
 
-//        for(int i = 0;i < 1000;i++){
-//            client.set("fzx" + i,"" + i);
-//        }
-
-//        for(int i = 500;i < 1000;i++){
-//            client.rm("fzx" + i);
-//        }
-
         Scanner scanner = new Scanner(System.in);
         while (true) {
             System.out.print(">");

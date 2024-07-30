@@ -22,7 +22,7 @@ public class SetActionHandler implements ActionHandler{
     public void handleAction(ActionDTO dto, ObjectOutputStream oos) throws IOException {
         store.set(dto.getKey(), dto.getValue());
         LoggerUtil.debug(LOGGER, "[SocketServerHandler][run]: {}", "set action resp" + dto.toString());
-        RespDTO resp = new RespDTO(RespStatusTypeEnum.SUCCESS, null);
+        RespDTO resp = new RespDTO(RespStatusTypeEnum.SUCCESS, dto.getValue());
         oos.writeObject(resp);
         oos.flush();
     }

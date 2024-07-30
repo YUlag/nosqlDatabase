@@ -143,7 +143,7 @@ public class NormalStore implements Store {
 
 
     public void reloadIndex() {
-        synchronized (reIndexLock){
+        synchronized (reIndexLock) {
             try {
                 index.clear();
 
@@ -210,7 +210,7 @@ public class NormalStore implements Store {
         synchronized (getLock) {
             try {
                 // 先从只读表中获取信息
-                if (readOnlyTable != null){
+                if (readOnlyTable != null) {
                     if (readOnlyTable.containsKey(key)) {
                         Command cmd = readOnlyTable.get(key);
                         if (cmd instanceof SetCommand) {
@@ -223,7 +223,7 @@ public class NormalStore implements Store {
                 }
 
                 // 再尝试从读写表中获取信息
-                if (readWriteTable != null){
+                if (readWriteTable != null) {
                     if (readWriteTable.containsKey(key)) {
                         Command cmd = readWriteTable.get(key);
                         if (cmd instanceof SetCommand) {
@@ -313,7 +313,7 @@ public class NormalStore implements Store {
                     RandomAccessFileUtil.write(this.getDiskFilePath(), commandBytes);
                     CommandPos cmdPos = new CommandPos(startPoint, commandBytes.length, this.getDiskFilePath());
 
-                    synchronized (reIndexLock){
+                    synchronized (reIndexLock) {
                         index.insertOrUpdate(key, cmdPos);
                     }
                 }
@@ -346,21 +346,10 @@ public class NormalStore implements Store {
                 byte[] commandBytes = new byte[length];
                 logFile.readFully(commandBytes);
 
-//                Command command = JSONObject.parseObject(commandBytes, Command.class);
-//                if (command instanceof SetCommand) {
-//                    readWriteTable.put(command.getKey(), command);
-//                } else if (command instanceof RmCommand) {
-//                    readWriteTable.remove(command.getKey());
-//                }
-
                 JSONObject value = JSONObject.parseObject(new String(commandBytes));
                 Command command = CommandUtil.jsonToCommand(value);
-                if (command instanceof SetCommand) {
-                    readWriteTable.put(command.getKey(), command);
-                }
-                if (command instanceof RmCommand) {
-                    readWriteTable.remove(command.getKey());
-                }
+
+                readWriteTable.put(command.getKey(), command);
 
                 if (isJump && logFile.getFilePointer() == len) {
                     logFile.seek(Integer.BYTES * 2);
@@ -577,7 +566,7 @@ public class NormalStore implements Store {
                     File secondFile = new File(secondFilePath);
                     // 判断第二个文件的大小是否小于20KB
                     if (secondFile.length() < 20 * 1024) {
-                        appendFiles(firstFilePath,secondFilePath);
+                        appendFiles(firstFilePath, secondFilePath);
                         this.compressFile(new File(dataFiles.peekFirst()));
                     } else {
                         dataFiles.addFirst(firstFilePath);
@@ -592,6 +581,6 @@ public class NormalStore implements Store {
 
     public void startMonitoring() { // 默认10秒一次
         ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-        scheduler.scheduleAtFixedRate(this::monitorAndMerge, 0, MONTIOR_PERIOD , TimeUnit.SECONDS);
+        scheduler.scheduleAtFixedRate(this::monitorAndMerge, 0, MONTIOR_PERIOD, TimeUnit.SECONDS);
     }
 }

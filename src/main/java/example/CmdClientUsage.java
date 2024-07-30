@@ -1,8 +1,8 @@
 package example;
 
-import client.Client;
 import client.CmdClient;
-import client.SocketClient;
+
+import static java.lang.System.exit;
 
 public class CmdClientUsage {
     public static void main(String[] args) {
